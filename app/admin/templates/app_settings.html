@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}App Settings{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Application Settings</h2>
+  <p class="muted">Configure API URL and other application settings. Changes take effect immediately for the chatbot widget.</p>
+  
+  {% if status %}
+    <div class="{{ 'status-success' if status.success else 'status-error' }}">{{ status.message }}</div>
+  {% endif %}
+
+  <form method="post" action="/admin/settings/api-url" style="margin-top:24px;">
+    
+    <!-- API URL Configuration -->
+    <div style="margin-bottom:32px; padding-bottom:24px; border-bottom:2px solid #e2e8f0;">
+      <h3 style="margin-bottom:16px; color:#4338ca;">API URL Configuration</h3>
+      <p class="muted" style="margin-bottom:16px;">
+        Configure the API base URL that the chatbot widget will use to connect to the backend.
+        This is especially useful when your IP address changes (e.g., switching networks).
+      </p>
+      
+      <div style="margin-bottom:16px;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input 
+            type="checkbox" 
+            id="auto_detect_api_url" 
+            name="auto_detect_api_url" 
+            {% if settings.auto_detect_api_url %}checked{% endif %}
+            style="width:18px; height:18px; cursor:pointer;"
+            onchange="toggleManualUrl()"
+          />
+          <span><strong>Auto-detect API URL</strong> (Recommended)</span>
+        </label>
+        <p class="muted" style="margin-left:26px; margin-top:4px;">
+          Automatically detect the API URL based on the current network. This works best when accessing from the same network.
+        </p>
+      </div>
+      
+      <div id="manual-url-section" style="{% if settings.auto_detect_api_url %}display:none;{% endif %}">
+        <label for="api_base_url">Manual API Base URL</label>
+        <input 
+          type="url" 
+          id="api_base_url" 
+          name="api_base_url" 
+          value="{{ settings.api_base_url or '' }}" 
+          placeholder="http://192.168.1.100:8000"
+          pattern="https?://.*"
+        />
+        <p class="muted">
+          Enter the full API URL including protocol and port. Examples:
+          <br>• <code>http://192.168.1.100:8000</code> (Local network IP)
+          <br>• <code>http://localhost:8000</code> (Local development)
+          <br>• <code>https://api.yourdomain.com</code> (Production)
+        </p>
+      </div>
+      
+      <div style="margin-top:16px; padding:16px; background:#f1f5f9; border-radius:12px; border-left:4px solid #4338ca;">
+        <p style="margin:0; font-weight:600; color:#1e293b; margin-bottom:8px;">💡 How it works:</p>
+        <ul style="margin:0; padding-left:20px; color:#475569;">
+          <li>When <strong>Auto-detect</strong> is enabled, the frontend will fetch the API URL from <code>/admin/api/config</code></li>
+          <li>The backend automatically detects your current IP address</li>
+          <li>When <strong>Manual</strong> is set, the frontend uses the exact URL you specify</li>
+          <li>Changes take effect immediately - no rebuild required!</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Current Configuration Display -->
+    <div style="margin-bottom:32px; padding:16px; background:#f8fafc; border-radius:12px; border:1px solid #e2e8f0;">
+      <h4 style="margin-top:0; color:#4338ca;">Current Configuration</h4>
+      <div style="display:grid; grid-template-columns:auto 1fr; gap:12px; align-items:center;">
+        <strong>Mode:</strong>
+        <span>{{ "Auto-detect" if settings.auto_detect_api_url else "Manual" }}</span>
+        {% if not settings.auto_detect_api_url and settings.api_base_url %}
+        <strong>API URL:</strong>
+        <code style="background:#fff; padding:4px 8px; border-radius:6px; border:1px solid #e2e8f0;">{{ settings.api_base_url }}</code>
+        {% endif %}
+      </div>
+    </div>
+
+    <button class="btn btn-primary" type="submit" style="width:100%; padding:14px; font-size:16px;">
+      Save API URL Settings
+    </button>
+  </form>
+</div>
+
+<!-- Custom Instructions Section -->
+<div class="card" style="margin-top:24px;">
+  <h2>Chatbot Instructions</h2>
+  <p class="muted">Customize how the chatbot processes and responds to user queries. These instructions override the default behavior.</p>
+  
+  {% if status %}
+    <div class="{{ 'status-success' if status.success else 'status-error' }}">{{ status.message }}</div>
+  {% endif %}
+
+  <form method="post" action="/admin/settings/instructions" style="margin-top:24px;">
+    
+    <!-- Custom Instructions Editor -->
+    <div style="margin-bottom:32px;">
+      <h3 style="margin-bottom:16px; color:#4338ca;">Custom Instructions</h3>
+      <p class="muted" style="margin-bottom:16px;">
+        Define custom instructions that guide how the chatbot processes queries and generates responses.
+        These instructions are sent to the AI model along with each user query.
+      </p>
+      
+      <label for="custom_instructions">Chatbot Processing Instructions</label>
+      <textarea 
+        id="custom_instructions" 
+        name="custom_instructions" 
+        placeholder="You are Cache Digitech's virtual assistant. Provide concise, precise answers in Cache Digitech's tone. Prioritize knowledge base context; if nothing relevant is found, draw on Gemini's general knowledge and frame the response as Cache Digitech's solution. Never offer long essays; stay to the point, highlight next steps, and offer to connect with a human when appropriate."
+        style="min-height:250px; font-family: 'Courier New', monospace; font-size:13px;"
+      >{{ settings.custom_instructions or '' }}</textarea>
+      
+      <p class="muted" style="margin-top:8px;">
+        <strong>Tips:</strong>
+        <br>• Leave empty to use default instructions
+        <br>• Use clear, specific language about how the chatbot should behave
+        <br>• Include tone, response style, and any specific requirements
+        <br>• The instructions will be combined with language detection and formatting guidelines
+      </p>
+      
+      <div style="margin-top:16px; padding:16px; background:#f1f5f9; border-radius:12px; border-left:4px solid #4338ca;">
+        <p style="margin:0; font-weight:600; color:#1e293b; margin-bottom:8px;">📝 Default Instructions (if custom is empty):</p>
+        <pre style="margin:0; padding:12px; background:#fff; border-radius:8px; font-size:12px; overflow-x:auto; color:#475569; white-space:pre-wrap;">You are Cache Digitech's virtual assistant. Provide concise, precise answers in Cache Digitech's tone. Prioritize knowledge base context; if nothing relevant is found, draw on Gemini's general knowledge and frame the response as Cache Digitech's solution. Never offer long essays; stay to the point, highlight next steps, and offer to connect with a human when appropriate.</pre>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" type="submit" style="width:100%; padding:14px; font-size:16px;">
+      Save Custom Instructions
+    </button>
+  </form>
+</div>
+
+<script>
+  function toggleManualUrl() {
+    const checkbox = document.getElementById('auto_detect_api_url');
+    const manualSection = document.getElementById('manual-url-section');
+    const urlInput = document.getElementById('api_base_url');
+    
+    if (checkbox.checked) {
+      manualSection.style.display = 'none';
+      urlInput.removeAttribute('required');
+    } else {
+      manualSection.style.display = 'block';
+      urlInput.setAttribute('required', 'required');
+    }
+  }
+  
+  // Initialize on page load
+  toggleManualUrl();
+</script>
+{% endblock %}
+

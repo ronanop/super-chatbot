@@ -1,0 +1,694 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Base{% endblock %}
+{% block content %}
+<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
+  <div class="card">
+    <h2>Ingestion Progress</h2>
+    <p class="muted">Track document ingestion jobs in real time. This section refreshes automatically every few seconds.</p>
+    <div id="progress-container" style="display:flex; flex-direction:column; gap:12px;"></div>
+    <p class="muted" id="progress-empty" style="margin-top:12px;">No ingestion jobs running right now.</p>
+  </div>
+
+  <div class="card" style="grid-column: span 2;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h2>System Logs</h2>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <select id="log-level-filter" style="padding:6px 12px; border-radius:8px; border:1px solid #cbd5f5;">
+          <option value="">All Levels</option>
+          <option value="DEBUG">DEBUG</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARNING</option>
+          <option value="ERROR">ERROR</option>
+          <option value="CRITICAL">CRITICAL</option>
+        </select>
+        <button id="clear-logs-btn" class="btn" style="padding:6px 12px; font-size:13px;">Clear Logs</button>
+      </div>
+    </div>
+    <p class="muted">Real-time logs from crawler, scraper, and ingestion operations. Auto-refreshes every 3 seconds.</p>
+    <div id="logs-container" style="background:#1e293b; color:#e2e8f0; padding:16px; border-radius:12px; font-family:'Courier New', monospace; font-size:12px; max-height:400px; overflow-y:auto; line-height:1.6;">
+      <div style="color:#64748b;">Loading logs...</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Upload PDF</h2>
+    <p class="muted">Add new documents to the knowledge base. Files are chunked and stored in Pinecone.</p>
+    {% if pdf_status %}
+      <div class="{{ 'status-success' if pdf_status.success else 'status-error' }}">{{ pdf_status.message }}</div>
+    {% endif %}
+    <form action="/admin/ingestion/pdf" method="post" enctype="multipart/form-data">
+      <label for="pdf">Choose PDF file</label>
+      <input type="file" accept="application/pdf" name="pdf" required />
+      <label for="pdf-folder">Folder</label>
+      <input type="text" name="folder" id="pdf-folder" placeholder="e.g. company" value="general" />
+      <button class="btn btn-primary" type="submit">Upload and Index</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Crawl Website URLs</h2>
+    <p class="muted">Provide one or more URLs (one per line). The crawler fetches text and updates Pinecone.</p>
+    {% if crawl_status %}
+      <div class="{{ 'status-success' if crawl_status.success else 'status-error' }}">{{ crawl_status.message }}</div>
+    {% endif %}
+    <form action="/admin/ingestion/crawl" method="post">
+      <label for="urls">URLs</label>
+      <textarea name="urls" placeholder="https://cachedigitech.com
+https://cachedigitech.com/services" required></textarea>
+      <label for="crawl-folder">Folder</label>
+      <input type="text" name="folder" id="crawl-folder" placeholder="e.g. services" value="general" />
+      <button class="btn btn-primary" type="submit">Start Crawl</button>
+    </form>
+    <div id="crawl-job-status" class="muted" style="margin-top:16px;">
+      {% if crawl_job %}
+        Current crawl ({{ crawl_job.status }}): {{ crawl_job.message or 'waiting for updates' }}
+      {% else %}
+        No crawl jobs yet. Start one above to discover links.
+      {% endif %}
+    </div>
+    <div id="crawl-actions" style="margin-top:12px; {% if not crawl_job %}display:none;{% endif %}">
+      <form id="crawl-scrape-form" method="post" action="{% if crawl_job %}/admin/crawl-jobs/{{ crawl_job.id }}/scrape{% else %}#{% endif %}">
+        <button class="btn btn-primary" type="submit">Start Scraping &amp; Ingest</button>
+      </form>
+    </div>
+    <div id="crawl-links-wrapper" style="margin-top:18px;">
+      <h3 style="font-size:15px; font-weight:600; color:#1e293b;">Discovered Links</h3>
+      <p class="muted" id="crawl-links-empty" style="{% if crawl_job and crawl_job.total_discovered %}display:none;{% endif %}">
+        No links discovered yet.
+      </p>
+      <div id="crawl-links-container" style="display:flex; flex-direction:column; gap:12px;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Website Embed</h2>
+    <p class="muted">Use these snippets to embed the chatbot. Update the source URL if you host the widget elsewhere.</p>
+    <p class="muted"><strong>Current src:</strong> {{ widget_src }}</p>
+    <label style="font-weight:600;margin-top:12px;display:block;">Floating iframe (always visible)</label>
+    <textarea readonly class="code-snippet">{{ widget_iframe_code | e }}</textarea>
+    <label style="font-weight:600;margin-top:16px;display:block;">Popup launcher (button + toggle)</label>
+    <textarea readonly class="code-snippet" style="min-height:220px;">{{ widget_popup_code | e }}</textarea>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 32px;">
+  <h2>Knowledge Base Files</h2>
+  <p class="muted">Manage stored documents by folder. Renaming will re-ingest the file to keep Pinecone updated.</p>
+  {% if doc_status %}
+    <div class="{{ 'status-success' if doc_status.success else 'status-error' }}">{{ doc_status.message }}</div>
+  {% endif %}
+
+  {% if documents_by_folder %}
+    {% for folder, docs in documents_by_folder.items() %}
+      <h3 style="margin-top:24px; text-transform: uppercase; letter-spacing: 0.04em; color:#475569;">Folder: {{ folder }}</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Stored File</th>
+            <th>Created</th>
+            <th style="width: 280px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for doc in docs %}
+          <tr>
+            <td>{{ doc.display_name }}</td>
+            <td>{{ doc.doc_type }}</td>
+            <td>{{ doc.filename }}</td>
+            <td>{{ doc.created_at.strftime('%Y-%m-%d %H:%M') if doc.created_at else 'N/A' }}</td>
+            <td>
+              <form method="post" action="/admin/knowledge/{{ doc.id }}/rename" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <input type="text" name="new_display_name" value="{{ doc.display_name }}" style="flex:1; min-width:140px; padding:8px; border-radius:8px; border:1px solid #cbd5f5;" />
+                <input type="text" name="new_folder" value="{{ doc.folder }}" style="width:120px; padding:8px; border-radius:8px; border:1px solid #cbd5f5;" />
+                <button class="btn btn-secondary" type="submit">Rename</button>
+              </form>
+              <form method="post" action="/admin/knowledge/{{ doc.id }}/delete" style="margin-top:8px;" onsubmit="return confirm('Delete this document? This removes associated embeddings.');">
+                <button class="btn btn-secondary" type="submit" style="background:#fee2e2;color:#b91c1c;">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endfor %}
+  {% else %}
+    <p class="muted" style="margin-top:16px;">No documents stored yet.</p>
+  {% endif %}
+
+  <div style="margin-top:32px; padding-top:24px; border-top:2px solid #e2e8f0;">
+    <h3 style="color:#dc2626; margin-bottom:12px;">⚠️ Danger Zone</h3>
+    <p class="muted" style="margin-bottom:16px;">
+      Delete all knowledge base documents, crawl jobs, Pinecone vectors, and local files. 
+      This action cannot be undone and will reset the chatbot to start learning from scratch.
+    </p>
+    <form method="post" action="/admin/knowledge/delete-all" onsubmit="return confirmDeleteAll();" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <input 
+        type="text" 
+        name="confirm" 
+        id="delete-confirm-input"
+        placeholder="Type 'DELETE ALL' to confirm" 
+        required
+        style="flex:1; min-width:200px; padding:10px 14px; border-radius:8px; border:2px solid #fca5a5; background:#fef2f2;"
+      />
+      <button 
+        class="btn" 
+        type="submit" 
+        style="background:#dc2626; color:white; padding:10px 20px; font-weight:600;"
+      >
+        Delete All Knowledge Base
+      </button>
+    </form>
+    <p class="muted" style="margin-top:8px; font-size:12px;">
+      This will delete: all documents, all crawl jobs, all URLs, all Pinecone vectors, and all local files.
+    </p>
+  </div>
+</div>
+<script id="ingestion-progress-data" type="application/json">{{ progress_jobs | tojson }}</script>
+<script id="ingestion-highlight" type="application/json">{{ highlight_job | tojson }}</script>
+<script id="crawl-job-data" type="application/json">{{ crawl_job | tojson }}</script>
+<script id="crawl-job-id" type="application/json">{{ crawl_job_id | tojson }}</script>
+<style>
+  .progress-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 14px 18px;
+    background: #f8fafc;
+    box-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
+  }
+  .progress-item.highlight {
+    border-color: #4338ca;
+    box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
+  }
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    font-weight: 600;
+    color: #1e293b;
+  }
+  .progress-status {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+  }
+  .progress-status.processing {
+    color: #4338ca;
+  }
+  .progress-status.complete {
+    color: #16a34a;
+  }
+  .progress-status.error {
+    color: #dc2626;
+  }
+  .progress-bar {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    overflow: hidden;
+    margin: 8px 0;
+  }
+  .progress-bar > div {
+    height: 100%;
+    background: linear-gradient(135deg, #4338ca, #6366f1);
+  }
+  .progress-meta {
+    font-size: 13px;
+    color: #475569;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .progress-message {
+    font-size: 13px;
+    color: #1e293b;
+    margin-top: 8px;
+  }
+  .crawl-item {
+    border: 1px solid #dbeafe;
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: #eff6ff;
+  }
+  .crawl-item.pending {
+    border-color: #c7d2fe;
+    background: #f8fafc;
+  }
+  .crawl-item.scraped {
+    border-color: #bbf7d0;
+    background: #ecfdf5;
+  }
+  .crawl-item.failed {
+    border-color: #fecaca;
+    background: #fef2f2;
+  }
+  .crawl-item.deleted {
+    border-color: #f1f5f9;
+    background: #f8fafc;
+    opacity: 0.7;
+  }
+  .crawl-item-top {
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    align-items:flex-start;
+  }
+  .crawl-url {
+    font-weight:600;
+    color:#1e293b;
+    word-break:break-word;
+  }
+  .crawl-status {
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    font-weight:700;
+  }
+  .crawl-status.pending {
+    color:#4338ca;
+  }
+  .crawl-status.scraped {
+    color:#16a34a;
+  }
+  .crawl-status.failed {
+    color:#dc2626;
+  }
+  .crawl-status.deleted {
+    color:#64748b;
+  }
+  .crawl-item-meta {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-top:8px;
+    font-size:12px;
+    color:#475569;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  .crawl-note {
+    font-size:12px;
+    color:#dc2626;
+    margin-top:6px;
+  }
+  .delete-link-btn {
+    background:#fee2e2;
+    color:#b91c1c;
+    border:none;
+    border-radius:8px;
+    padding:6px 10px;
+    font-size:12px;
+    cursor:pointer;
+  }
+  .delete-link-btn:hover {
+    background:#fecaca;
+  }
+</style>
+<script>
+  (function () {
+    const container = document.getElementById('progress-container');
+    const emptyState = document.getElementById('progress-empty');
+    const dataTag = document.getElementById('ingestion-progress-data');
+    const highlightTag = document.getElementById('ingestion-highlight');
+
+    if (!container || !dataTag) {
+      return;
+    }
+
+    let jobs = [];
+    let highlightJob = null;
+
+    try {
+      jobs = JSON.parse(dataTag.textContent || '[]') || [];
+    } catch (err) {
+      jobs = [];
+    }
+
+    try {
+      highlightJob = JSON.parse(highlightTag?.textContent || 'null');
+    } catch (err) {
+      highlightJob = null;
+    }
+
+    const statusLabels = {
+      processing: 'Processing',
+      complete: 'Complete',
+      error: 'Error',
+    };
+
+    const statusClass = {
+      processing: 'processing',
+      complete: 'complete',
+      error: 'error',
+    };
+
+    function hasNumber(value) {
+      return typeof value === 'number' && !Number.isNaN(value);
+    }
+
+    function formatChunks(job) {
+      if (hasNumber(job.total_chunks)) {
+        return `${job.processed_chunks}/${job.total_chunks} chunks`;
+      }
+      if (hasNumber(job.processed_chunks) && job.processed_chunks > 0) {
+        return `${job.processed_chunks} chunks`;
+      }
+      return 'Preparing…';
+    }
+
+    function render() {
+      if (!jobs.length) {
+        container.innerHTML = '';
+        if (emptyState) emptyState.style.display = 'block';
+        return;
+      }
+
+      if (emptyState) emptyState.style.display = 'none';
+
+      container.innerHTML = jobs
+        .map((job) => {
+          const status = statusLabels[job.status] || 'Processing';
+          const statusCls = statusClass[job.status] || 'processing';
+          const totalIsPositive = hasNumber(job.total_chunks) && job.total_chunks > 0;
+          const percent = typeof job.percent_complete === 'number'
+            ? job.percent_complete
+            : totalIsPositive
+              ? Math.round((job.processed_chunks / job.total_chunks) * 100)
+              : null;
+          const updatedAt = job.updated_at
+            ? new Date(job.updated_at).toLocaleTimeString()
+            : '';
+          return `
+            <div class="progress-item${job.job_id === highlightJob ? ' highlight' : ''}">
+              <div class="progress-header">
+                <span>${job.label}</span>
+                <span class="progress-status ${statusCls}">${status}</span>
+              </div>
+              ${
+                percent !== null
+                  ? `<div class="progress-bar"><div style="width:${Math.min(100, Math.max(0, percent))}%"></div></div>`
+                  : ''
+              }
+              <div class="progress-meta">
+                <span>${formatChunks(job)}</span>
+                <span>Updated ${updatedAt}</span>
+              </div>
+              ${job.message ? `<div class="progress-message">${job.message}</div>` : ''}
+            </div>
+          `;
+        })
+        .join('');
+    }
+
+    async function poll() {
+      try {
+        const response = await fetch('/admin/ingestion/progress', { credentials: 'include' });
+        if (!response.ok) {
+          return;
+        }
+        const payload = await response.json();
+        jobs = payload.jobs || [];
+        render();
+      } catch (err) {
+        console.error('Progress polling failed', err);
+      }
+    }
+
+    render();
+    setInterval(poll, 4000);
+  })();
+</script>
+<script>
+  (function () {
+    const statusEl = document.getElementById('crawl-job-status');
+    const linksContainer = document.getElementById('crawl-links-container');
+    const emptyEl = document.getElementById('crawl-links-empty');
+    const jobDataTag = document.getElementById('crawl-job-data');
+    const jobIdTag = document.getElementById('crawl-job-id');
+    const actionsEl = document.getElementById('crawl-actions');
+    const scrapeForm = document.getElementById('crawl-scrape-form');
+
+    if (!statusEl || !linksContainer || !jobIdTag) {
+      return;
+    }
+
+    let crawlJobId = null;
+    let jobSnapshot = null;
+
+    try {
+      crawlJobId = JSON.parse(jobIdTag.textContent || 'null');
+    } catch (err) {
+      crawlJobId = null;
+    }
+
+    try {
+      jobSnapshot = JSON.parse(jobDataTag?.textContent || 'null') || null;
+    } catch (err) {
+      jobSnapshot = null;
+    }
+
+    if (!crawlJobId) {
+      if (actionsEl) actionsEl.style.display = 'none';
+      return;
+    }
+
+    if (scrapeForm) {
+      scrapeForm.action = `/admin/crawl-jobs/${crawlJobId}/scrape`;
+    }
+
+    function escapeHtml(value) {
+      return (value || '').replace(/[&<>"']/g, function (match) {
+        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return map[match] || match;
+      });
+    }
+
+    function render(data) {
+      if (!data || !data.job) {
+        statusEl.textContent = 'No crawl jobs yet.';
+        linksContainer.innerHTML = '';
+        if (emptyEl) emptyEl.style.display = 'block';
+        if (actionsEl) actionsEl.style.display = 'none';
+        return;
+      }
+
+      const job = data.job;
+      const urls = data.urls || [];
+      const pendingCount = urls.filter((item) => item.status === 'pending' || item.status === 'failed').length;
+
+      statusEl.textContent = `${job.root_url || 'Crawl'} · ${job.status}${job.message ? ' – ' + job.message : ''}`;
+
+      if (urls.length === 0) {
+        linksContainer.innerHTML = '';
+        if (emptyEl) emptyEl.style.display = 'block';
+      } else {
+        if (emptyEl) emptyEl.style.display = 'none';
+        linksContainer.innerHTML = urls
+          .map((link) => {
+            return `
+              <div class="crawl-item ${escapeHtml(link.status)}">
+                <div class="crawl-item-top">
+                  <span class="crawl-url">${escapeHtml(link.url)}</span>
+                  <span class="crawl-status ${escapeHtml(link.status)}">${escapeHtml(link.status || '').toUpperCase()}</span>
+                </div>
+                <div class="crawl-item-meta">
+                  <span>Depth ${link.depth ?? 0}</span>
+                  ${
+                    link.status === 'pending' || link.status === 'failed'
+                      ? `<button class="delete-link-btn" data-link-id="${link.id}">Delete</button>`
+                      : ''
+                  }
+                </div>
+                ${link.notes ? `<div class="crawl-note">${escapeHtml(link.notes)}</div>` : ''}
+              </div>
+            `;
+          })
+          .join('');
+      }
+
+      if (actionsEl) {
+        if (pendingCount > 0 && ['completed', 'scraped', 'failed'].includes(job.status)) {
+          actionsEl.style.display = 'block';
+          if (scrapeForm && scrapeForm.querySelector('button')) {
+            scrapeForm.querySelector('button').disabled = false;
+            scrapeForm.querySelector('button').textContent = `Start Scraping (${pendingCount} URL${pendingCount === 1 ? '' : 's'})`;
+          }
+        } else {
+          actionsEl.style.display = 'none';
+          if (scrapeForm && scrapeForm.querySelector('button')) {
+            scrapeForm.querySelector('button').disabled = true;
+          }
+        }
+      }
+    }
+
+    async function poll() {
+      try {
+        const response = await fetch(`/admin/crawl-jobs/${crawlJobId}/data`, { credentials: 'include' });
+        if (!response.ok) {
+          return;
+        }
+        const payload = await response.json();
+        render(payload);
+      } catch (err) {
+        console.error('Crawl polling failed', err);
+      }
+    }
+
+    linksContainer.addEventListener('click', async (event) => {
+      const target = event.target;
+      if (target && target.matches('.delete-link-btn')) {
+        event.preventDefault();
+        const linkId = target.getAttribute('data-link-id');
+        if (!linkId) return;
+        try {
+          await fetch(`/admin/crawl-jobs/${crawlJobId}/links/${linkId}/delete`, {
+            method: 'POST',
+            credentials: 'include',
+          });
+          poll();
+        } catch (err) {
+          console.error('Failed to delete link', err);
+        }
+      }
+    });
+
+    render({ job: jobSnapshot, urls: [] });
+    poll();
+    setInterval(poll, 5000);
+  })();
+
+  // Logs polling
+  (function() {
+    const logsContainer = document.getElementById('logs-container');
+    const levelFilter = document.getElementById('log-level-filter');
+    const clearBtn = document.getElementById('clear-logs-btn');
+    
+    if (!logsContainer) return;
+
+    function getLevelColor(level) {
+      switch(level) {
+        case 'ERROR': case 'CRITICAL': return '#ef4444';
+        case 'WARNING': return '#f59e0b';
+        case 'INFO': return '#3b82f6';
+        case 'DEBUG': return '#8b5cf6';
+        default: return '#64748b';
+      }
+    }
+
+    function formatLogEntry(log) {
+      const time = new Date(log.timestamp).toLocaleTimeString();
+      const levelColor = getLevelColor(log.level);
+      return `<div style="margin-bottom:4px;">
+        <span style="color:#64748b;">[${time}]</span>
+        <span style="color:${levelColor}; font-weight:600;">[${log.level}]</span>
+        <span style="color:#94a3b8;">${log.logger}:</span>
+        <span style="color:#e2e8f0;">${escapeHtml(log.raw_message)}</span>
+      </div>`;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    let fetchErrorCount = 0;
+    async function fetchLogs() {
+      try {
+        const level = levelFilter.value || null;
+        const url = `/admin/logs${level ? `?level=${level}` : ''}`;
+        // For HTTP Basic Auth, browser should automatically include credentials for same-origin requests
+        // credentials: 'include' is for cookies, but Basic Auth should work automatically
+        const response = await fetch(url, { 
+          credentials: 'same-origin',
+          headers: {
+            'Accept': 'application/json',
+          }
+        });
+        if (!response.ok) {
+          fetchErrorCount++;
+          if (fetchErrorCount === 1) {
+            const errorText = response.status === 401 
+              ? 'Authentication required. Please refresh the page and log in again.'
+              : `Error fetching logs: HTTP ${response.status}. Check console for details.`;
+            logsContainer.innerHTML = `<div style="color:#ef4444;">${errorText}</div>`;
+          }
+          return;
+        }
+        fetchErrorCount = 0; // Reset on success
+        const payload = await response.json();
+        const logs = payload.logs || [];
+        
+        if (logs.length === 0) {
+          logsContainer.innerHTML = '<div style="color:#64748b;">No logs available. Logs will appear here when operations start.</div>';
+          return;
+        }
+
+        // Reverse to show newest first
+        const reversedLogs = [...logs].reverse();
+        logsContainer.innerHTML = reversedLogs.map(formatLogEntry).join('');
+        
+        // Auto-scroll to bottom (newest logs)
+        logsContainer.scrollTop = logsContainer.scrollHeight;
+      } catch (err) {
+        fetchErrorCount++;
+        console.error('Logs polling failed', err);
+        if (fetchErrorCount === 1) {
+          logsContainer.innerHTML = `<div style="color:#ef4444;">Error fetching logs: ${err.message}. Check console for details.</div>`;
+        }
+      }
+    }
+
+    levelFilter.addEventListener('change', fetchLogs);
+    
+    clearBtn.addEventListener('click', async () => {
+      if (!confirm('Clear all logs?')) return;
+      try {
+        await fetch('/admin/logs/clear', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        fetchLogs();
+      } catch (err) {
+        console.error('Failed to clear logs', err);
+      }
+    });
+
+    fetchLogs();
+    setInterval(fetchLogs, 3000); // Poll every 3 seconds
+  })();
+
+  // Delete All confirmation
+  function confirmDeleteAll() {
+    const input = document.getElementById('delete-confirm-input');
+    const confirmText = input.value.trim();
+    
+    if (confirmText !== 'DELETE ALL') {
+      alert('Please type "DELETE ALL" exactly to confirm.');
+      return false;
+    }
+    
+    const confirmed = confirm(
+      '⚠️ WARNING: This will permanently delete:\n\n' +
+      '• All knowledge base documents\n' +
+      '• All crawl jobs and URLs\n' +
+      '• All vectors from Pinecone\n' +
+      '• All local files\n\n' +
+      'This action CANNOT be undone!\n\n' +
+      'Are you absolutely sure you want to continue?'
+    );
+    
+    if (!confirmed) {
+      input.value = '';
+      return false;
+    }
+    
+    return true;
+  }
+</script>
+{% endblock %}

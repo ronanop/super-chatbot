@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block title %}Admin Overview{% endblock %}
+{% block content %}
+<!-- Stats Cards -->
+<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px;">
+  <div class="card stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+      <div>
+        <h2 style="color: rgba(255,255,255,0.9); font-size: 1.1rem; margin: 0 0 8px 0; font-weight: 600;">Users</h2>
+        <p style="color: rgba(255,255,255,0.7); font-size: 0.85rem; margin: 0;">Total registered contacts</p>
+      </div>
+      <div style="font-size: 2.5rem; opacity: 0.2;">👥</div>
+    </div>
+    <p style="font-size: 3rem; margin: 0; font-weight: 700; text-shadow: 0 2px 10px rgba(0,0,0,0.2);">{{ totals.users }}</p>
+  </div>
+  
+  <div class="card stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; border: none;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+      <div>
+        <h2 style="color: rgba(255,255,255,0.9); font-size: 1.1rem; margin: 0 0 8px 0; font-weight: 600;">Chat Sessions</h2>
+        <p style="color: rgba(255,255,255,0.7); font-size: 0.85rem; margin: 0;">Conversations captured</p>
+      </div>
+      <div style="font-size: 2.5rem; opacity: 0.2;">💬</div>
+    </div>
+    <p style="font-size: 3rem; margin: 0; font-weight: 700; text-shadow: 0 2px 10px rgba(0,0,0,0.2);">{{ totals.sessions }}</p>
+  </div>
+  
+  <div class="card stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; border: none;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+      <div>
+        <h2 style="color: rgba(255,255,255,0.9); font-size: 1.1rem; margin: 0 0 8px 0; font-weight: 600;">Messages</h2>
+        <p style="color: rgba(255,255,255,0.7); font-size: 0.85rem; margin: 0;">All messages stored</p>
+      </div>
+      <div style="font-size: 2.5rem; opacity: 0.2;">📨</div>
+    </div>
+    <p style="font-size: 3rem; margin: 0; font-weight: 700; text-shadow: 0 2px 10px rgba(0,0,0,0.2);">{{ totals.messages }}</p>
+  </div>
+</div>
+
+<!-- Charts Section -->
+<div class="grid grid-2" style="margin-top: 32px;">
+  <div class="card">
+    <h2>Sessions Over Time</h2>
+    <p class="muted">New chat sessions in the last 7 days</p>
+    <div class="chart-container">
+      <canvas id="sessionsChart"></canvas>
+    </div>
+  </div>
+  
+  <div class="card">
+    <h2>Messages Over Time</h2>
+    <p class="muted">Total messages sent in the last 7 days</p>
+    <div class="chart-container">
+      <canvas id="messagesChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top: 24px;">
+  <div class="card">
+    <h2>Message Types</h2>
+    <p class="muted">Distribution of user vs bot messages</p>
+    <div class="chart-container">
+      <canvas id="messageTypesChart"></canvas>
+    </div>
+  </div>
+  
+  <div class="card">
+    <h2>Recent Sessions</h2>
+    <p class="muted">Newest conversations with quick access to transcripts.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Started</th>
+          <th>User</th>
+          <th>Messages</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for session in recent_sessions %}
+        <tr>
+          <td>#{{ session.id }}</td>
+          <td>{{ session.started_at.strftime('%Y-%m-%d %H:%M') if session.started_at else 'N/A' }}</td>
+          <td>
+            {% if session.user %}
+              <span class="badge">{{ session.user.name or session.user.email or 'Contact' }}</span>
+            {% else %}
+              <span class="badge" style="background:var(--bg-tertiary);color:var(--text-muted);">Anonymous</span>
+            {% endif %}
+          </td>
+          <td>{{ session.message_count }}</td>
+          <td><a class="btn btn-secondary" href="/admin/sessions/{{ session.id }}">View →</a></td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="muted">No sessions recorded yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+  // Dark theme colors
+  const chartColors = {
+    primary: 'rgba(102, 126, 234, 0.8)',
+    primaryLight: 'rgba(102, 126, 234, 0.4)',
+    secondary: 'rgba(240, 147, 251, 0.8)',
+    secondaryLight: 'rgba(240, 147, 251, 0.4)',
+    accent: 'rgba(79, 172, 254, 0.8)',
+    accentLight: 'rgba(79, 172, 254, 0.4)',
+    success: 'rgba(16, 185, 129, 0.8)',
+    successLight: 'rgba(16, 185, 129, 0.4)',
+    text: '#f1f5f9',
+    textMuted: '#94a3b8',
+    grid: 'rgba(51, 65, 85, 0.5)',
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        labels: {
+          color: chartColors.text,
+          font: {
+            family: 'Inter, sans-serif',
+            size: 12,
+          }
+        }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(30, 41, 59, 0.95)',
+        titleColor: chartColors.text,
+        bodyColor: chartColors.textMuted,
+        borderColor: chartColors.grid,
+        borderWidth: 1,
+        padding: 12,
+        cornerRadius: 8,
+      }
+    },
+    scales: {
+      x: {
+        grid: {
+          color: chartColors.grid,
+        },
+        ticks: {
+          color: chartColors.textMuted,
+        }
+      },
+      y: {
+        grid: {
+          color: chartColors.grid,
+        },
+        ticks: {
+          color: chartColors.textMuted,
+        },
+        beginAtZero: true
+      }
+    }
+  };
+
+  // Sessions Chart
+  const sessionsCtx = document.getElementById('sessionsChart');
+  if (sessionsCtx) {
+    const sessionsData = {{ chart_data.sessions_by_day|tojson }};
+    new Chart(sessionsCtx, {
+      type: 'line',
+      data: {
+        labels: sessionsData.labels || [],
+        datasets: [{
+          label: 'Sessions',
+          data: sessionsData.data || [],
+          borderColor: chartColors.primary,
+          backgroundColor: chartColors.primaryLight,
+          borderWidth: 3,
+          fill: true,
+          tension: 0.4,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          pointBackgroundColor: chartColors.primary,
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+        }]
+      },
+      options: chartOptions
+    });
+  }
+
+  // Messages Chart
+  const messagesCtx = document.getElementById('messagesChart');
+  if (messagesCtx) {
+    const messagesData = {{ chart_data.messages_by_day|tojson }};
+    new Chart(messagesCtx, {
+      type: 'bar',
+      data: {
+        labels: messagesData.labels || [],
+        datasets: [{
+          label: 'Messages',
+          data: messagesData.data || [],
+          backgroundColor: [
+            chartColors.accentLight,
+            chartColors.secondaryLight,
+            chartColors.primaryLight,
+            chartColors.successLight,
+            chartColors.accentLight,
+            chartColors.secondaryLight,
+            chartColors.primaryLight,
+          ],
+          borderColor: [
+            chartColors.accent,
+            chartColors.secondary,
+            chartColors.primary,
+            chartColors.success,
+            chartColors.accent,
+            chartColors.secondary,
+            chartColors.primary,
+          ],
+          borderWidth: 2,
+          borderRadius: 8,
+        }]
+      },
+      options: chartOptions
+    });
+  }
+
+  // Message Types Pie Chart
+  const messageTypesCtx = document.getElementById('messageTypesChart');
+  if (messageTypesCtx) {
+    const messageTypesData = {{ chart_data.message_types|tojson }};
+    new Chart(messageTypesCtx, {
+      type: 'doughnut',
+      data: {
+        labels: messageTypesData.labels || [],
+        datasets: [{
+          data: messageTypesData.data || [],
+          backgroundColor: [
+            chartColors.primary,
+            chartColors.accent,
+          ],
+          borderColor: [
+            chartColors.primary,
+            chartColors.accent,
+          ],
+          borderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              color: chartColors.text,
+              font: {
+                family: 'Inter, sans-serif',
+                size: 12,
+              },
+              padding: 15,
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(30, 41, 59, 0.95)',
+            titleColor: chartColors.text,
+            bodyColor: chartColors.textMuted,
+            borderColor: chartColors.grid,
+            borderWidth: 1,
+            padding: 12,
+            cornerRadius: 8,
+          }
+        }
+      }
+    });
+  }
+</script>
+{% endblock %}

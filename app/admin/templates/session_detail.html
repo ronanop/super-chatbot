@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Session #{{ session.id }}{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+    <div>
+      <h2 style="margin: 0;">Session #{{ session.id }}</h2>
+      <p class="muted" style="margin-top: 8px;">
+        Started {{ session.started_at.strftime('%Y-%m-%d %H:%M') if session.started_at else 'N/A' }} ·
+        {% if session.user %}
+          Linked to {{ session.user.name or session.user.email or 'Contact' }}
+        {% else %}
+          Anonymous visitor
+        {% endif %}
+      </p>
+    </div>
+    <a class="btn btn-primary" href="/admin/sessions/{{ session.id }}/download" download style="background: var(--accent-gradient); color: white; border: none;">
+      <span style="margin-right: 4px;">⬇</span> Download JSON
+    </a>
+  </div>
+
+  <div style="display: grid; gap: 12px; margin-top: 24px;">
+    {% for item in transcript %}
+    <div style="border: 1px solid var(--border-color); border-radius: 14px; padding: 14px 18px; background: {% if item.is_user_message %}rgba(102, 126, 234, 0.1){% else %}var(--bg-secondary){% endif %};">
+      <div style="font-weight: 600; color: {% if item.is_user_message %}var(--text-primary){% else %}var(--text-secondary){% endif %}; margin-bottom: 6px;">
+        {% if item.is_user_message %}Visitor{% else %}Assistant{% endif %}
+        <span class="muted" style="margin-left: 8px;">{{ item.timestamp.strftime('%Y-%m-%d %H:%M:%S') if item.timestamp else 'N/A' }}</span>
+      </div>
+      <div style="white-space: pre-wrap; line-height: 1.55; color: var(--text-primary);">{{ item.content }}</div>
+    </div>
+    {% else %}
+    <p class="muted">No messages recorded for this session.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

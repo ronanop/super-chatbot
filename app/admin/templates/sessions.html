@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Chat Sessions{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Chat Sessions</h2>
+  <p class="muted">Browse every conversation and open the full transcript.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Started</th>
+        <th>User</th>
+        <th>Messages</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for session in sessions %}
+      <tr>
+        <td>#{{ session.id }}</td>
+        <td>{{ session.started_at.strftime('%Y-%m-%d %H:%M') if session.started_at else 'N/A' }}</td>
+        <td>
+          {% if session.user %}
+            {{ session.user.name or session.user.email or 'Contact' }}
+          {% else %}
+            Anonymous
+          {% endif %}
+        </td>
+        <td>{{ session.message_count }}</td>
+        <td>
+          <div class="actions">
+            <a class="btn btn-secondary" href="/admin/sessions/{{ session.id }}">Open</a>
+            <a class="btn btn-secondary" href="/admin/sessions/{{ session.id }}/download" download style="background: var(--accent-gradient); color: white; border: none;">
+              <span style="margin-right: 4px;">⬇</span> Download
+            </a>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="5" class="muted">No sessions found.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

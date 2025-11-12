@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Users</h2>
+  <p class="muted">Contacts captured when visitors submit their details via the in-chat form.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Phone</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td>#{{ user.id }}</td>
+        <td>{{ user.name or '—' }}</td>
+        <td>{{ user.email or '—' }}</td>
+        <td>{{ user.phone or '—' }}</td>
+        <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else 'N/A' }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="5" class="muted">No user records are stored yet.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

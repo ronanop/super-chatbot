@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+{% block title %}BOT UI Customization{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Chatbot UI Customization</h2>
+  <p class="muted">Customize the look and feel of your chatbot widget. Changes are applied immediately.</p>
+  
+  {% if status %}
+    <div class="{{ 'status-success' if status.success else 'status-error' }}">{{ status.message }}</div>
+  {% endif %}
+
+  <form method="post" action="/admin/bot-ui/save" style="margin-top:24px;">
+    
+    <!-- Basic Settings -->
+    <div style="margin-bottom:32px; padding-bottom:24px; border-bottom:2px solid #e2e8f0;">
+      <h3 style="margin-bottom:16px; color:#4338ca;">Basic Settings</h3>
+      
+      <label for="bot_name">Chatbot Name</label>
+      <input 
+        type="text" 
+        id="bot_name" 
+        name="bot_name" 
+        value="{{ settings.bot_name }}" 
+        placeholder="Cache Digitech Virtual Assistant"
+        required
+      />
+      
+      <label for="bot_icon_url" style="margin-top:16px;">Bot Icon URL</label>
+      <input 
+        type="url" 
+        id="bot_icon_url" 
+        name="bot_icon_url" 
+        value="{{ settings.bot_icon_url or '' }}" 
+        placeholder="https://example.com/icon.png"
+      />
+      <p class="muted">URL to an image for the bot icon. Leave empty to use default emoji.</p>
+      
+      <label for="welcome_message" style="margin-top:16px;">Welcome Message</label>
+      <textarea 
+        id="welcome_message" 
+        name="welcome_message" 
+        placeholder="Hi! I'm the Cache Digitech assistant. Ask me anything..."
+      >{{ settings.welcome_message or '' }}</textarea>
+      <p class="muted">Initial message shown when user opens the chatbot. Leave empty for default.</p>
+    </div>
+
+    <!-- Color Settings -->
+    <div style="margin-bottom:32px; padding-bottom:24px; border-bottom:2px solid #e2e8f0;">
+      <h3 style="margin-bottom:16px; color:#4338ca;">Color Customization</h3>
+      
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:16px;">
+        <div>
+          <label for="primary_color">Primary Color (Header/Brand)</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input 
+              type="color" 
+              id="primary_color" 
+              name="primary_color" 
+              value="{{ settings.primary_color }}"
+              style="width:60px; height:40px; padding:2px; cursor:pointer;"
+            />
+            <input 
+              type="text" 
+              value="{{ settings.primary_color }}" 
+              oninput="document.getElementById('primary_color').value=this.value"
+              style="flex:1;"
+              pattern="^#[0-9A-Fa-f]{6}$"
+            />
+          </div>
+        </div>
+        
+        <div>
+          <label for="secondary_color">Secondary Color (Accent)</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input 
+              type="color" 
+              id="secondary_color" 
+              name="secondary_color" 
+              value="{{ settings.secondary_color }}"
+              style="width:60px; height:40px; padding:2px; cursor:pointer;"
+            />
+            <input 
+              type="text" 
+              value="{{ settings.secondary_color }}" 
+              oninput="document.getElementById('secondary_color').value=this.value"
+              style="flex:1;"
+              pattern="^#[0-9A-Fa-f]{6}$"
+            />
+          </div>
+        </div>
+        
+        <div>
+          <label for="background_color">Chat Background</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input 
+              type="color" 
+              id="background_color" 
+              name="background_color" 
+              value="{{ settings.background_color }}"
+              style="width:60px; height:40px; padding:2px; cursor:pointer;"
+            />
+            <input 
+              type="text" 
+              value="{{ settings.background_color }}" 
+              oninput="document.getElementById('background_color').value=this.value"
+              style="flex:1;"
+              pattern="^#[0-9A-Fa-f]{6}$"
+            />
+          </div>
+        </div>
+        
+        <div>
+          <label for="text_color">Main Text Color</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input 
+              type="color" 
+              id="text_color" 
+              name="text_color" 
+              value="{{ settings.text_color }}"
+              style="width:60px; height:40px; padding:2px; cursor:pointer;"
+            />
+            <input 
+              type="text" 
+              value="{{ settings.text_color }}" 
+              oninput="document.getElementById('text_color').value=this.value"
+              style="flex:1;"
+              pattern="^#[0-9A-Fa-f]{6}$"
+            />
+          </div>
+        </div>
+        
+        <div>
+          <label for="user_message_bg">User Message Background</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input 
+              type="color" 
+              id="user_message_bg" 
+              name="user_message_bg" 
+              value="{{ settings.user_message_bg }}"
+              style="width:60px; height:40px; padding:2px; cursor:pointer;"
+            />
+            <input 
+              type="text" 
+              value="{{ settings.user_message_bg }}" 
+              oninput="document.getElementById('user_message_bg').value=this.value"
+              style="flex:1;"
+              pattern="^#[0-9A-Fa-f]{6}$"
+            />
+          </div>
+        </div>
+        
+        <div>
+          <label for="user_message_text">User Message Text</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input 
+              type="color" 
+              id="user_message_text" 
+              name="user_message_text" 
+              value="{{ settings.user_message_text }}"
+              style="width:60px; height:40px; padding:2px; cursor:pointer;"
+            />
+            <input 
+              type="text" 
+              value="{{ settings.user_message_text }}" 
+              oninput="document.getElementById('user_message_text').value=this.value"
+              style="flex:1;"
+              pattern="^#[0-9A-Fa-f]{6}$"
+            />
+          </div>
+        </div>
+        
+        <div>
+          <label for="bot_message_bg">Bot Message Background</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input 
+              type="color" 
+              id="bot_message_bg" 
+              name="bot_message_bg" 
+              value="{{ settings.bot_message_bg }}"
+              style="width:60px; height:40px; padding:2px; cursor:pointer;"
+            />
+            <input 
+              type="text" 
+              value="{{ settings.bot_message_bg }}" 
+              oninput="document.getElementById('bot_message_bg').value=this.value"
+              style="flex:1;"
+              pattern="^#[0-9A-Fa-f]{6}$"
+            />
+          </div>
+        </div>
+        
+        <div>
+          <label for="bot_message_text">Bot Message Text</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input 
+              type="color" 
+              id="bot_message_text" 
+              name="bot_message_text" 
+              value="{{ settings.bot_message_text }}"
+              style="width:60px; height:40px; padding:2px; cursor:pointer;"
+            />
+            <input 
+              type="text" 
+              value="{{ settings.bot_message_text }}" 
+              oninput="document.getElementById('bot_message_text').value=this.value"
+              style="flex:1;"
+              pattern="^#[0-9A-Fa-f]{6}$"
+            />
+          </div>
+        </div>
+        
+        <div>
+          <label for="link_color">Link Color</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input 
+              type="color" 
+              id="link_color" 
+              name="link_color" 
+              value="{{ settings.link_color }}"
+              style="width:60px; height:40px; padding:2px; cursor:pointer;"
+            />
+            <input 
+              type="text" 
+              value="{{ settings.link_color }}" 
+              oninput="document.getElementById('link_color').value=this.value"
+              style="flex:1;"
+              pattern="^#[0-9A-Fa-f]{6}$"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Widget Settings -->
+    <div style="margin-bottom:32px; padding-bottom:24px; border-bottom:2px solid #e2e8f0;">
+      <h3 style="margin-bottom:16px; color:#4338ca;">Widget Settings</h3>
+      
+      <label for="widget_position">Widget Position</label>
+      <select id="widget_position" name="widget_position" style="padding:12px; border-radius:12px; border:1px solid #cbd5f5;">
+        <option value="bottom-right" {% if settings.widget_position == 'bottom-right' %}selected{% endif %}>Bottom Right</option>
+        <option value="bottom-left" {% if settings.widget_position == 'bottom-left' %}selected{% endif %}>Bottom Left</option>
+        <option value="top-right" {% if settings.widget_position == 'top-right' %}selected{% endif %}>Top Right</option>
+        <option value="top-left" {% if settings.widget_position == 'top-left' %}selected{% endif %}>Top Left</option>
+      </select>
+      
+      <label for="widget_size" style="margin-top:16px;">Widget Size</label>
+      <select id="widget_size" name="widget_size" style="padding:12px; border-radius:12px; border:1px solid #cbd5f5;">
+        <option value="small" {% if settings.widget_size == 'small' %}selected{% endif %}>Small (320px)</option>
+        <option value="medium" {% if settings.widget_size == 'medium' %}selected{% endif %}>Medium (400px)</option>
+        <option value="large" {% if settings.widget_size == 'large' %}selected{% endif %}>Large (500px)</option>
+      </select>
+      
+      <div style="margin-top:16px;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input 
+            type="checkbox" 
+            id="show_branding" 
+            name="show_branding" 
+            {% if settings.show_branding %}checked{% endif %}
+            style="width:18px; height:18px; cursor:pointer;"
+          />
+          <span>Show "Powered by Cache Digitech" branding</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Advanced Settings -->
+    <div style="margin-bottom:32px;">
+      <h3 style="margin-bottom:16px; color:#4338ca;">Advanced Customization</h3>
+      
+      <label for="custom_css">Custom CSS</label>
+      <textarea 
+        id="custom_css" 
+        name="custom_css" 
+        placeholder=".chat-widget { /* your custom styles */ }"
+        style="font-family: 'Courier New', monospace; min-height:150px;"
+      >{{ settings.custom_css or '' }}</textarea>
+      <p class="muted">Add custom CSS to further customize the widget appearance. Use with caution.</p>
+    </div>
+
+    <!-- Preview Section -->
+    <div style="margin-bottom:32px; padding:24px; background:#f8fafc; border-radius:12px; border:2px dashed #cbd5f5;">
+      <h3 style="margin-bottom:16px; color:#4338ca;">Live Preview</h3>
+      <p class="muted">Preview your changes in real-time. The preview updates as you change colors.</p>
+      <div id="preview-container" style="margin-top:16px; max-width:400px; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.2);">
+        <!-- Preview will be generated by JavaScript -->
+      </div>
+    </div>
+
+    <button class="btn btn-primary" type="submit" style="width:100%; padding:14px; font-size:16px;">
+      Save Settings
+    </button>
+  </form>
+</div>
+
+<script>
+  // Sync color inputs
+  document.querySelectorAll('input[type="color"]').forEach(colorInput => {
+    const textInput = colorInput.parentElement.querySelector('input[type="text"]');
+    colorInput.addEventListener('input', (e) => {
+      textInput.value = e.target.value;
+      updatePreview();
+    });
+    textInput.addEventListener('input', (e) => {
+      if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+        colorInput.value = e.target.value;
+        updatePreview();
+      }
+    });
+  });
+
+  // Update preview on any change
+  document.querySelectorAll('input, select, textarea').forEach(input => {
+    input.addEventListener('change', updatePreview);
+    input.addEventListener('input', updatePreview);
+  });
+
+  function updatePreview() {
+    const container = document.getElementById('preview-container');
+    if (!container) return;
+
+    const primaryColor = document.getElementById('primary_color').value;
+    const botName = document.getElementById('bot_name').value || 'Chatbot';
+    const botIcon = document.getElementById('bot_icon_url').value || '🤖';
+    const welcomeMsg = document.getElementById('welcome_message').value || 'Hi! How can I help you?';
+    const userBg = document.getElementById('user_message_bg').value;
+    const userText = document.getElementById('user_message_text').value;
+    const botBg = document.getElementById('bot_message_bg').value;
+    const botText = document.getElementById('bot_message_text').value;
+    const bgColor = document.getElementById('background_color').value;
+
+    container.innerHTML = `
+      <div style="background:${bgColor}; border-radius:16px; overflow:hidden;">
+        <div style="background:linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd); color:white; padding:16px 20px; display:flex; align-items:center; gap:12px;">
+          <div style="width:32px; height:32px; border-radius:8px; background:rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; font-size:20px;">
+            ${botIcon.includes('http') ? `<img src="${botIcon}" style="width:100%; height:100%; object-fit:cover;" />` : botIcon}
+          </div>
+          <div>
+            <div style="font-weight:600; font-size:14px;">${botName.split(' ')[0] || 'Chatbot'}</div>
+            <div style="font-size:11px; opacity:0.9;">Virtual Assistant</div>
+          </div>
+        </div>
+        <div style="padding:16px; max-height:300px; overflow-y:auto;">
+          <div style="display:flex; gap:8px; margin-bottom:12px;">
+            <div style="width:24px; height:24px; border-radius:50%; background:#e2e8f0; flex-shrink:0;"></div>
+            <div style="background:${botBg}; color:${botText}; padding:10px 14px; border-radius:12px; max-width:75%; font-size:13px;">
+              ${welcomeMsg}
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; justify-content:flex-end; margin-bottom:12px;">
+            <div style="background:${userBg}; color:${userText}; padding:10px 14px; border-radius:12px; max-width:75%; font-size:13px;">
+              Hello!
+            </div>
+            <div style="width:24px; height:24px; border-radius:50%; background:#e2e8f0; flex-shrink:0;"></div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Initial preview
+  updatePreview();
+</script>
+{% endblock %}
+
