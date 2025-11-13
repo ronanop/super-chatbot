@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
+from pathlib import Path
 from typing import Generator
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
@@ -229,9 +233,21 @@ async def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)) -> 
             "Never offer long essays; stay to the point, highlight next steps, and offer to connect with a human when appropriate."
         )
     
+    # Get current date and time
+    now = datetime.now()
+    current_date = now.strftime("%B %d, %Y")  # e.g., "January 15, 2024"
+    current_time = now.strftime("%I:%M %p")  # e.g., "02:30 PM"
+    current_datetime = now.strftime("%B %d, %Y at %I:%M %p")  # e.g., "January 15, 2024 at 02:30 PM"
+    current_day = now.strftime("%A")  # e.g., "Monday"
+    
     # Combine base instructions with language requirement and formatting guidelines
     instructions = (
         f"{base_instructions}\n\n"
+        f"CURRENT DATE AND TIME INFORMATION:\n"
+        f"- Today's date: {current_date} ({current_day})\n"
+        f"- Current time: {current_time}\n"
+        f"- Full date and time: {current_datetime}\n"
+        f"- Use this information when answering questions about dates, times, or scheduling.\n\n"
         f"LANGUAGE REQUIREMENT: {language_instruction}\n\n"
         "Formatting guidelines:\n"
         "- Use **bold** (double asterisks) for important words, key terms, service names, and section headers.\n"
@@ -318,3 +334,116 @@ async def submit_user_info(payload: UserInfoRequest, db: Session = Depends(get_d
     db.refresh(user)
 
     return UserInfoResponse(status="ok", user_id=user.id)
+
+
+# Mount static files for widget (if dist folder exists) with no-cache headers
+widget_dist_path = Path("chatbot-widget/dist")
+if widget_dist_path.exists():
+    from fastapi.responses import FileResponse
+    import mimetypes
+    
+    @app.get("/static/widget/{file_path:path}")
+    async def serve_widget_static(file_path: str, request: Request):
+        """Serve widget static files with no-cache headers."""
+        # Normalize the path to prevent directory traversal
+        file_full_path = (widget_dist_path / file_path).resolve()
+        
+        # Ensure the file is within the dist directory
+        try:
+            file_full_path.relative_to(widget_dist_path.resolve())
+        except ValueError:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        if file_full_path.exists() and file_full_path.is_file():
+            # Determine content type
+            content_type, _ = mimetypes.guess_type(str(file_full_path))
+            if not content_type:
+                if file_full_path.suffix == '.js':
+                    content_type = 'application/javascript'
+                elif file_full_path.suffix == '.css':
+                    content_type = 'text/css'
+                else:
+                    content_type = 'application/octet-stream'
+            
+            # Read file content
+            with open(file_full_path, 'rb') as f:
+                content = f.read()
+            
+            # Create response with no-cache headers
+            from starlette.responses import Response
+            response = Response(
+                content=content,
+                media_type=content_type,
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                    "ETag": f'"{file_full_path.stat().st_mtime}"',  # Use file modification time as ETag
+                    "Last-Modified": "",  # Clear Last-Modified to prevent caching
+                }
+            )
+            return response
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+
+@app.get("/embed", response_class=HTMLResponse)
+async def embed_widget(request: Request):
+    """Serve the embeddable chatbot widget page."""
+    # Get the API base URL from request
+    api_base_url = f"{request.url.scheme}://{request.url.netloc}"
+    
+    # Add cache-busting version - use current timestamp + random to ensure uniqueness
+    import time
+    import random
+    cache_version = f"{int(time.time())}-{random.randint(1000, 9999)}"
+    
+    embed_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Chatbot Widget</title>
+    <link rel="stylesheet" crossorigin href="/static/widget/assets/index.css?v={cache_version}">
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        html, body {{
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }}
+        #root {{
+            width: 100%;
+            height: 100%;
+        }}
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script>
+        // Set API base URL for the widget
+        window.WIDGET_API_BASE_URL = "{api_base_url}";
+        // Force reload settings on every load
+        window.WIDGET_FORCE_RELOAD = true;
+        // Widget version for cache verification
+        window.WIDGET_VERSION = "{cache_version}";
+        console.log("Chatbot Widget loaded - Version:", window.WIDGET_VERSION);
+    </script>
+    <script type="module" crossorigin src="/static/widget/assets/index.js?v={cache_version}"></script>
+</body>
+</html>"""
+    
+    response = HTMLResponse(content=embed_html)
+    # Allow embedding in iframes from any origin
+    response.headers["Content-Security-Policy"] = "frame-ancestors *;"
+    # Prevent caching of the embed page itself
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response

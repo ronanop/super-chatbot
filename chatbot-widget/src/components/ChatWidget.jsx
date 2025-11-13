@@ -360,6 +360,7 @@ export default function ChatWidget() {
   const [isRecording, setIsRecording] = useState(false);
   const [isVoiceSupported, setIsVoiceSupported] = useState(false);
   const [shouldAutoSubmit, setShouldAutoSubmit] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(true); // Start as true to show widget immediately with defaults
 
   const chatBodyRef = useRef(null);
   const typewriterIntervalRef = useRef(null);
@@ -444,9 +445,27 @@ export default function ChatWidget() {
     
     const fetchSettings = async () => {
       try {
-        const response = await fetch(`${apiBaseUrl}/admin/bot-ui/api/settings`);
+        // Always use cache-busting to ensure fresh settings
+        // Use timestamp + random to ensure uniqueness even if called multiple times quickly
+        const cacheBuster = `?v=${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const forceReload = window.WIDGET_FORCE_RELOAD || false;
+        
+        const response = await fetch(`${apiBaseUrl}/admin/bot-ui/api/settings${cacheBuster}`, {
+          cache: forceReload ? 'reload' : 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
         if (response.ok) {
           const settings = await response.json();
+          console.log("✅ UI Settings fetched successfully:", {
+            bot_name: settings.bot_name,
+            primary_color: settings.primary_color,
+            timestamp: new Date().toISOString()
+          });
           setUiSettings({ ...defaultSettings, ...settings });
           // Update welcome message if custom
           if (settings.welcome_message) {
@@ -456,10 +475,15 @@ export default function ChatWidget() {
               content: settings.welcome_message,
             }]);
           }
+          setSettingsLoaded(true);
+        } else {
+          // If fetch fails, still mark as loaded to show widget with defaults
+          setSettingsLoaded(true);
         }
       } catch (err) {
         console.error("Failed to fetch UI settings:", err);
-        // Use defaults on error
+        // Use defaults on error, but still mark as loaded
+        setSettingsLoaded(true);
       }
     };
     fetchSettings();
@@ -804,37 +828,50 @@ export default function ChatWidget() {
   const widgetWidth = widgetSizes[uiSettings.widget_size] || widgetSizes.medium;
   const positionClass = positionClasses[uiSettings.widget_position] || positionClasses["bottom-right"];
 
-  return (
-    <div className={`fixed ${positionClass} z-50 font-sans`}>
-      <button
-        type="button"
-        onClick={toggleWidget}
-        className="flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:scale-105 active:scale-95"
-        style={{
-          backgroundColor: uiSettings.primary_color,
-          boxShadow: `0 10px 25px ${uiSettings.primary_color}40`,
-        }}
-        onMouseEnter={(e) => {
-          e.target.style.opacity = "0.9";
-          e.target.style.transform = "scale(1.05)";
-        }}
-        onMouseLeave={(e) => {
-          e.target.style.opacity = "1";
-          e.target.style.transform = "scale(1)";
-        }}
-        aria-expanded={isOpen}
-      >
-        <span className="h-5 w-5 transition-transform duration-300" style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>💬</span>
-        {buttonLabel}
-      </button>
+  // Detect if running in iframe
+  const isInIframe = window.self !== window.top;
 
-      {isOpen && (
-        <div 
-          className={`mt-4 overflow-hidden rounded-3xl border border-slate-200 shadow-2xl animate-slide-in-up`}
+  // For iframe mode, always show the chat and use relative positioning
+  const containerClass = isInIframe 
+    ? "relative w-full h-full font-sans" 
+    : `fixed ${positionClass} z-50 font-sans`;
+
+  return (
+    <div className={containerClass}>
+      {!isInIframe && (
+        <button
+          type="button"
+          onClick={toggleWidget}
+          className="flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:scale-105 active:scale-95"
           style={{
-            width: widgetWidth,
+            backgroundColor: uiSettings.primary_color,
+            boxShadow: `0 10px 25px ${uiSettings.primary_color}40`,
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.opacity = "0.9";
+            e.target.style.transform = "scale(1.05)";
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.opacity = "1";
+            e.target.style.transform = "scale(1)";
+          }}
+          aria-expanded={isOpen}
+        >
+          <span className="h-5 w-5 transition-transform duration-300" style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>💬</span>
+          {buttonLabel}
+        </button>
+      )}
+
+      {(isOpen || isInIframe) && (
+        <div 
+          className={`overflow-hidden rounded-3xl border border-slate-200 shadow-2xl ${isInIframe ? 'h-full' : 'mt-4 animate-slide-in-up'}`}
+          style={{
+            width: isInIframe ? '100%' : widgetWidth,
+            height: isInIframe ? '100%' : 'auto',
             backgroundColor: uiSettings.background_color,
-            animation: 'slideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+            animation: isInIframe ? 'none' : 'slideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
           <header 
@@ -857,7 +894,7 @@ export default function ChatWidget() {
 
           <div 
             ref={chatBodyRef} 
-            className="flex max-h-[420px] flex-col gap-4 overflow-y-auto px-4 py-5"
+            className={`flex flex-col gap-4 overflow-y-auto px-4 py-5 ${isInIframe ? 'flex-1' : 'max-h-[420px]'}`}
             style={{
               backgroundColor: uiSettings.background_color,
             }}
@@ -974,21 +1011,24 @@ export default function ChatWidget() {
 
           <form 
             onSubmit={handleSendMessage} 
-            className="border-t border-slate-200 p-4"
+            className="border-t border-slate-200 p-3 sm:p-4"
             style={{
               backgroundColor: uiSettings.background_color,
             }}
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
               <input
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder={isRecording ? "Listening..." : "Type your message..."}
-                className="flex-1 rounded-2xl border border-slate-300 px-4 py-3 text-sm focus:outline-none"
+                className="chat-input-field rounded-2xl border border-slate-300 px-3 py-2.5 text-sm sm:px-4 sm:py-3 focus:outline-none"
                 style={{
                   borderColor: isRecording 
                     ? '#ef4444' 
                     : (uiSettings.background_color === '#ffffff' ? '#cbd5e1' : 'rgba(255,255,255,0.2)'),
+                  fontSize: isInIframe ? '16px' : undefined, // Prevent zoom on iOS
+                  flex: '1 1 0',
+                  minWidth: 0,
                 }}
                 onFocus={(e) => {
                   if (!isRecording) {
@@ -1005,7 +1045,7 @@ export default function ChatWidget() {
               <button
                 type="button"
                 onClick={handleVoiceInput}
-                className={`flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:scale-110 active:scale-95 ${
+                className={`chat-action-button flex items-center justify-center rounded-full transition-all duration-200 hover:scale-110 active:scale-95 touch-manipulation flex-shrink-0 ${
                   isRecording ? 'animate-pulse' : ''
                 } ${!isVoiceSupported ? 'opacity-30 cursor-not-allowed' : ''}`}
                 style={{
@@ -1021,18 +1061,18 @@ export default function ChatWidget() {
                 }
               >
                 {isRecording ? (
-                  <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                  <svg className="chat-action-icon" fill="currentColor" viewBox="0 0 24 24">
                     <rect x="6" y="6" width="12" height="12" rx="2"/>
                   </svg>
                 ) : (
-                  <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                  <svg className="chat-action-icon" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
                   </svg>
                 )}
               </button>
               <button
                 type="submit"
-                className="flex h-11 w-11 items-center justify-center rounded-full text-white transition-all duration-200 disabled:cursor-not-allowed hover:scale-110 active:scale-95"
+                className="chat-action-button flex items-center justify-center rounded-full text-white transition-all duration-200 disabled:cursor-not-allowed hover:scale-110 active:scale-95 touch-manipulation flex-shrink-0"
                 style={{
                   backgroundColor: uiSettings.primary_color,
                   opacity: (isLoading || !input.trim()) ? 0.5 : 1,
@@ -1052,12 +1092,12 @@ export default function ChatWidget() {
                 disabled={isLoading || !input.trim()}
               >
                 {isLoading ? (
-                  <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <svg className="chat-action-icon animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                   </svg>
                 ) : (
-                  <span className="text-lg">➤</span>
+                  <span className="chat-action-text">➤</span>
                 )}
               </button>
             </div>

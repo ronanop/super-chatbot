@@ -148,6 +148,96 @@
   
   // Initialize on page load
   toggleManualUrl();
+  
+  function copyEmbedCode() {
+    const embedCode = document.getElementById('embed-code');
+    embedCode.select();
+    document.execCommand('copy');
+    
+    const btn = document.getElementById('copy-btn');
+    const originalText = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    btn.style.backgroundColor = '#10b981';
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.style.backgroundColor = '';
+    }, 2000);
+  }
 </script>
+
+<!-- Embed Code Section -->
+<div class="card" style="margin-top:24px;">
+  <h2>Embed Code</h2>
+  <p class="muted">Copy and paste this code into your website to embed the chatbot widget.</p>
+  
+  <div style="margin-top:24px;">
+    <h3 style="margin-bottom:16px; color:#4338ca;">Iframe Embed Code</h3>
+    <p class="muted" style="margin-bottom:16px;">
+      Add this iframe code to any HTML page where you want to display the chatbot. 
+      You can customize the width and height as needed.
+    </p>
+    
+    <div style="position:relative; margin-bottom:16px;">
+      <textarea 
+        id="embed-code" 
+        readonly 
+        style="width:100%; min-height:120px; padding:12px; font-family:'Courier New', monospace; font-size:13px; background:#1e293b; color:#e2e8f0; border:1px solid #334155; border-radius:8px; resize:vertical;"
+      ><!-- Chatbot Widget Container -->
+<div style="width: 100%; height: 600px; max-width: 100%;">
+  <iframe 
+    style="width: 100%; height: 100%; border: none; border-radius: 12px;" 
+    src="{{ request.url.scheme }}://{{ request.url.netloc }}/embed"
+    allow="microphone"
+  ></iframe>
+</div></textarea>
+      <button 
+        id="copy-btn"
+        onclick="copyEmbedCode()" 
+        class="btn btn-primary" 
+        style="position:absolute; top:8px; right:8px; padding:8px 16px; font-size:13px;"
+      >
+        Copy Code
+      </button>
+    </div>
+    
+    <div style="padding:16px; background:#f1f5f9; border-radius:12px; border-left:4px solid #4338ca;">
+      <p style="margin:0; font-weight:600; color:#1e293b; margin-bottom:8px;">📋 Usage Instructions:</p>
+      <ul style="margin:0; padding-left:20px; color:#475569;">
+        <li>Copy the embed code above</li>
+        <li>Paste it into your HTML page where you want the chatbot to appear</li>
+        <li>The iframe will <strong>automatically adjust</strong> to fill its container width</li>
+        <li>Adjust the container <code>height</code> (default: <code>600px</code>) to fit your design</li>
+        <li>The chatbot will automatically adapt to any container size</li>
+        <li><strong>Responsive:</strong> Works on desktop, tablet, and mobile devices</li>
+      </ul>
+    </div>
+    
+    <div style="margin-top:16px; padding:16px; background:rgba(16, 185, 129, 0.1); border-radius:12px; border-left:4px solid #10b981;">
+      <p style="margin:0; font-weight:600; color:#10b981; margin-bottom:8px;">💡 Customization Examples:</p>
+      <div style="margin-top:12px;">
+        <p style="margin-bottom:8px; color:#cbd5e1;"><strong>Full viewport height:</strong></p>
+        <pre style="background:#334155; color:#f1f5f9; padding:12px; border-radius:8px; overflow-x:auto; margin-bottom:12px; border:1px solid #475569; font-family:'Courier New', monospace; font-size:13px; line-height:1.6;">&lt;div style="width: 100%; height: 100vh;"&gt;
+  &lt;iframe style="width: 100%; height: 100%; border: none;" 
+          src="{{ request.url.scheme }}://{{ request.url.netloc }}/embed"&gt;&lt;/iframe&gt;
+&lt;/div&gt;</pre>
+        <p style="margin-bottom:8px; color:#cbd5e1;"><strong>Fixed height (compact):</strong></p>
+        <pre style="background:#334155; color:#f1f5f9; padding:12px; border-radius:8px; overflow-x:auto; border:1px solid #475569; font-family:'Courier New', monospace; font-size:13px; line-height:1.6;">&lt;div style="width: 100%; height: 500px;"&gt;
+  &lt;iframe style="width: 100%; height: 100%; border: none;" 
+          src="{{ request.url.scheme }}://{{ request.url.netloc }}/embed"&gt;&lt;/iframe&gt;
+&lt;/div&gt;</pre>
+      </div>
+    </div>
+    
+    <div style="margin-top:16px; padding:16px; background:rgba(245, 158, 11, 0.1); border-radius:12px; border-left:4px solid #f59e0b;">
+      <p style="margin:0; font-weight:600; color:#fbbf24; margin-bottom:8px;">⚠️ Important Notes:</p>
+      <ul style="margin:0; padding-left:20px; color:#cbd5e1;">
+        <li>Make sure your server is accessible from the internet (or same network) for the iframe to work</li>
+        <li>If using HTTPS, ensure your backend also supports HTTPS</li>
+        <li>The embed URL uses your current server address: <code style="background:#334155; color:#fbbf24; padding:2px 6px; border-radius:4px;">{{ request.url.scheme }}://{{ request.url.netloc }}/embed</code></li>
+        <li>For production, replace with your actual domain name</li>
+      </ul>
+    </div>
+  </div>
+</div>
 {% endblock %}
 

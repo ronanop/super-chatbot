@@ -3,9 +3,9 @@
 // This allows changing the IP address through the admin panel without rebuilding
 
 // Fallback URLs (used if backend config fetch fails)
-const NETWORK_IP = "192.168.36.34";
+const NETWORK_IP = "192.168.0.120";
 const NETWORK_URL = `http://${NETWORK_IP}:8000`;
-const OLD_IP = "192.168.0.120";
+const OLD_IP = "192.168.36.34";
 
 // Get environment URL, but ignore if it's the old IP
 let envUrl = import.meta.env.VITE_API_BASE_URL;
@@ -17,8 +17,8 @@ if (envUrl && envUrl.includes(OLD_IP)) {
 // Default fallback URL
 let defaultUrl = envUrl || NETWORK_URL;
 
-// Try to fetch API URL from backend
-let API_BASE_URL = defaultUrl;
+// Check if running in embed mode (iframe) - use window.WIDGET_API_BASE_URL if set
+let API_BASE_URL = window.WIDGET_API_BASE_URL || defaultUrl;
 
 // Function to fetch API config from backend
 async function fetchApiConfig() {
@@ -28,6 +28,7 @@ async function fetchApiConfig() {
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     NETWORK_URL,
+    "http://192.168.0.120:8000", // Current IP
   ];
 
   for (const baseUrl of possibleUrls) {

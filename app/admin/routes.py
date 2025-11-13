@@ -33,7 +33,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, selectinload
 
@@ -1375,13 +1375,13 @@ async def save_bot_ui_settings(
 
 
 @router.get("/bot-ui/api/settings")
-async def get_bot_ui_settings_api(db: Session = Depends(get_db)) -> dict:
+async def get_bot_ui_settings_api(db: Session = Depends(get_db)) -> JSONResponse:
     """Get BOT UI settings as JSON for frontend widget."""
     settings = db.query(models.BotUISettings).first()
     if not settings:
         # Return defaults
         default_settings = models.BotUISettings()
-        return {
+        data = {
             "bot_name": default_settings.bot_name,
             "bot_icon_url": default_settings.bot_icon_url,
             "welcome_message": default_settings.welcome_message,
@@ -1399,25 +1399,35 @@ async def get_bot_ui_settings_api(db: Session = Depends(get_db)) -> dict:
             "show_branding": default_settings.show_branding,
             "custom_css": default_settings.custom_css,
         }
+    else:
+        data = {
+            "bot_name": settings.bot_name,
+            "bot_icon_url": settings.bot_icon_url,
+            "welcome_message": settings.welcome_message,
+            "primary_color": settings.primary_color,
+            "secondary_color": settings.secondary_color,
+            "background_color": settings.background_color,
+            "text_color": settings.text_color,
+            "user_message_bg": settings.user_message_bg,
+            "user_message_text": settings.user_message_text,
+            "bot_message_bg": settings.bot_message_bg,
+            "bot_message_text": settings.bot_message_text,
+            "link_color": settings.link_color,
+            "widget_position": settings.widget_position,
+            "widget_size": settings.widget_size,
+            "show_branding": settings.show_branding,
+            "custom_css": settings.custom_css,
+        }
     
-    return {
-        "bot_name": settings.bot_name,
-        "bot_icon_url": settings.bot_icon_url,
-        "welcome_message": settings.welcome_message,
-        "primary_color": settings.primary_color,
-        "secondary_color": settings.secondary_color,
-        "background_color": settings.background_color,
-        "text_color": settings.text_color,
-        "user_message_bg": settings.user_message_bg,
-        "user_message_text": settings.user_message_text,
-        "bot_message_bg": settings.bot_message_bg,
-        "bot_message_text": settings.bot_message_text,
-        "link_color": settings.link_color,
-        "widget_position": settings.widget_position,
-        "widget_size": settings.widget_size,
-        "show_branding": settings.show_branding,
-        "custom_css": settings.custom_css,
-    }
+    # Return JSON response with cache-busting headers
+    return JSONResponse(
+        content=data,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+    )
 
 
 @router.get("/settings", response_class=HTMLResponse)
