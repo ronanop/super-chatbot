@@ -122,6 +122,7 @@ class BotUISettings(Base):
     # Basic settings
     bot_name: Mapped[str] = mapped_column(String(255), nullable=False, default="Cache Digitech Virtual Assistant")
     bot_icon_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    header_image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)  # Custom header image (circular)
     welcome_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     # Colors

@@ -1339,6 +1339,95 @@ async def save_bot_ui_settings(
         settings = models.BotUISettings()
         db.add(settings)
     
+    # Handle header image upload
+    # In Starlette/FastAPI, files from multipart forms are UploadFile objects in form_data
+    header_image_file = form_data.get("header_image")
+    
+    # Debug: log what we received
+    logger.info(f"Form data keys: {list(form_data.keys())}")
+    if header_image_file:
+        logger.info(f"Header image file received: type={type(header_image_file)}, filename={getattr(header_image_file, 'filename', 'N/A')}, hasattr filename={hasattr(header_image_file, 'filename')}")
+        # Check if it's actually an UploadFile-like object
+        if hasattr(header_image_file, 'read') and hasattr(header_image_file, 'filename'):
+            logger.info(f"File appears to be UploadFile-like: filename={header_image_file.filename}")
+    else:
+        logger.info("No header_image file found in form_data")
+    
+    # Check if file was uploaded (must be UploadFile with a filename)
+    file_uploaded = False
+    if header_image_file:
+        # Check if it's an UploadFile instance or has the necessary attributes
+        if isinstance(header_image_file, UploadFile):
+            if header_image_file.filename and header_image_file.filename.strip():
+                file_uploaded = True
+        elif hasattr(header_image_file, 'filename') and hasattr(header_image_file, 'read'):
+            # Might be a Starlette UploadFile but not recognized as FastAPI UploadFile
+            filename = getattr(header_image_file, 'filename', '')
+            if filename and filename.strip():
+                file_uploaded = True
+                logger.info(f"File detected via attributes: {filename}")
+    
+    if file_uploaded:
+        # Create uploads directory if it doesn't exist
+        uploads_dir = Path("uploads/header_images")
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Get filename
+        filename = header_image_file.filename if isinstance(header_image_file, UploadFile) else getattr(header_image_file, 'filename', '')
+        
+        # Generate unique filename
+        file_ext = Path(filename).suffix.lower()
+        if file_ext not in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']:
+            return RedirectResponse(
+                url="/admin/bot-ui?status=error&message=" + urllib.parse.quote_plus("Invalid image format. Please upload JPG, PNG, GIF, WebP, or SVG."),
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+        
+        import uuid
+        unique_filename = f"{uuid.uuid4().hex}{file_ext}"
+        file_path = uploads_dir / unique_filename
+        
+        # Save file
+        try:
+            # Read file content
+            if hasattr(header_image_file, 'read'):
+                content = await header_image_file.read()
+            else:
+                # Fallback: try to read as bytes
+                content = await header_image_file.read() if callable(getattr(header_image_file, 'read', None)) else b''
+            
+            if not content:
+                raise ValueError("File content is empty")
+            
+            file_path.write_bytes(content)
+            
+            # Generate URL (relative to server)
+            settings.header_image_url = f"/admin/uploads/header_images/{unique_filename}"
+            logger.info(f"Header image uploaded successfully: {unique_filename} ({len(content)} bytes)")
+        except Exception as e:
+            logger.error(f"Error saving header image: {e}", exc_info=True)
+            return RedirectResponse(
+                url="/admin/bot-ui?status=error&message=" + urllib.parse.quote_plus(f"Failed to upload image: {str(e)}"),
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+    elif form_data.get("header_image_url"):
+        # Use provided URL (only if no file was uploaded)
+        url_value = form_data.get("header_image_url", "").strip()
+        if url_value:
+            settings.header_image_url = url_value
+        # Don't clear if empty - keep existing value unless explicitly removed
+    elif form_data.get("remove_header_image") == "true":
+        # Remove header image
+        if settings.header_image_url and settings.header_image_url.startswith("/admin/uploads/"):
+            # Delete file if it's an uploaded file
+            try:
+                file_path = Path(settings.header_image_url.lstrip("/admin/"))
+                if file_path.exists():
+                    file_path.unlink()
+            except Exception as e:
+                logger.warning(f"Could not delete old header image: {e}")
+        settings.header_image_url = None
+    
     # Update basic settings
     settings.bot_name = form_data.get("bot_name", settings.bot_name)
     settings.bot_icon_url = form_data.get("bot_icon_url") or None
@@ -1374,16 +1463,43 @@ async def save_bot_ui_settings(
     )
 
 
+@router.get("/uploads/header_images/{filename}")
+async def serve_header_image(filename: str, request: Request):
+    """Serve uploaded header images."""
+    file_path = Path("uploads/header_images") / filename
+    
+    # Security: ensure file is within uploads directory
+    try:
+        file_path.resolve().relative_to(Path("uploads/header_images").resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if file_path.exists() and file_path.is_file():
+        from fastapi.responses import FileResponse
+        return FileResponse(str(file_path))
+    raise HTTPException(status_code=404, detail="Image not found")
+
+
 @router.get("/bot-ui/api/settings")
-async def get_bot_ui_settings_api(db: Session = Depends(get_db)) -> JSONResponse:
+async def get_bot_ui_settings_api(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
     """Get BOT UI settings as JSON for frontend widget."""
     settings = db.query(models.BotUISettings).first()
+    
+    # Get base URL for uploaded images
+    if request:
+        base_url = f"{request.url.scheme}://{request.url.netloc}"
+    else:
+        base_url = ""
+    
+    from datetime import datetime
+    
     if not settings:
         # Return defaults
         default_settings = models.BotUISettings()
         data = {
             "bot_name": default_settings.bot_name,
             "bot_icon_url": default_settings.bot_icon_url,
+            "header_image_url": default_settings.header_image_url,
             "welcome_message": default_settings.welcome_message,
             "primary_color": default_settings.primary_color,
             "secondary_color": default_settings.secondary_color,
@@ -1398,11 +1514,30 @@ async def get_bot_ui_settings_api(db: Session = Depends(get_db)) -> JSONResponse
             "widget_size": default_settings.widget_size,
             "show_branding": default_settings.show_branding,
             "custom_css": default_settings.custom_css,
+            "settings_updated_at": datetime.now().isoformat(),  # Timestamp for change detection
         }
     else:
+        # Convert relative URLs to absolute URLs
+        header_image_url = settings.header_image_url
+        if header_image_url:
+            if header_image_url.startswith("/admin/uploads/") or header_image_url.startswith("/uploads/"):
+                header_image_url = f"{base_url}{header_image_url}"
+            elif not header_image_url.startswith("http"):
+                # If it's a relative path without leading slash, add it
+                header_image_url = f"{base_url}/{header_image_url.lstrip('/')}"
+        
+        bot_icon_url = settings.bot_icon_url
+        if bot_icon_url:
+            if bot_icon_url.startswith("/admin/uploads/") or bot_icon_url.startswith("/uploads/"):
+                bot_icon_url = f"{base_url}{bot_icon_url}"
+            elif not bot_icon_url.startswith("http"):
+                bot_icon_url = f"{base_url}/{bot_icon_url.lstrip('/')}"
+        
+        from datetime import datetime
         data = {
             "bot_name": settings.bot_name,
-            "bot_icon_url": settings.bot_icon_url,
+            "bot_icon_url": bot_icon_url,
+            "header_image_url": header_image_url,
             "welcome_message": settings.welcome_message,
             "primary_color": settings.primary_color,
             "secondary_color": settings.secondary_color,
@@ -1417,6 +1552,7 @@ async def get_bot_ui_settings_api(db: Session = Depends(get_db)) -> JSONResponse
             "widget_size": settings.widget_size,
             "show_branding": settings.show_branding,
             "custom_css": settings.custom_css,
+            "settings_updated_at": settings.updated_at.isoformat() if settings.updated_at else datetime.now().isoformat(),  # Timestamp for change detection
         }
     
     # Return JSON response with cache-busting headers

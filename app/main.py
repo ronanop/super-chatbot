@@ -362,6 +362,8 @@ if widget_dist_path.exists():
                     content_type = 'application/javascript'
                 elif file_full_path.suffix == '.css':
                     content_type = 'text/css'
+                elif file_full_path.suffix == '.html':
+                    content_type = 'text/html'
                 else:
                     content_type = 'application/octet-stream'
             
@@ -369,7 +371,7 @@ if widget_dist_path.exists():
             with open(file_full_path, 'rb') as f:
                 content = f.read()
             
-            # Create response with no-cache headers
+            # Create response with aggressive no-cache headers
             from starlette.responses import Response
             response = Response(
                 content=content,
@@ -378,8 +380,7 @@ if widget_dist_path.exists():
                     "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
                     "Pragma": "no-cache",
                     "Expires": "0",
-                    "ETag": f'"{file_full_path.stat().st_mtime}"',  # Use file modification time as ETag
-                    "Last-Modified": "",  # Clear Last-Modified to prevent caching
+                    "X-Content-Type-Options": "nosniff",
                 }
             )
             return response
@@ -387,15 +388,34 @@ if widget_dist_path.exists():
 
 
 @app.get("/embed", response_class=HTMLResponse)
-async def embed_widget(request: Request):
+async def embed_widget(request: Request, db: Session = Depends(get_db)):
     """Serve the embeddable chatbot widget page."""
-    # Get the API base URL from request
+    # Get the API base URL - prefer configured URL, fallback to request URL
     api_base_url = f"{request.url.scheme}://{request.url.netloc}"
+    
+    # Check if there's a configured API URL in database
+    try:
+        app_settings = db.query(models.AppSettings).first()
+        if app_settings and app_settings.api_base_url and app_settings.api_base_url.strip():
+            api_base_url = app_settings.api_base_url.strip()
+            print(f"Using configured API URL for embed: {api_base_url}")
+        else:
+            print(f"Using request-based API URL for embed: {api_base_url}")
+    except Exception as e:
+        # If database query fails, use request URL as fallback
+        print(f"Warning: Could not query AppSettings, using request URL: {e}")
+        api_base_url = f"{request.url.scheme}://{request.url.netloc}"
     
     # Add cache-busting version - use current timestamp + random to ensure uniqueness
     import time
     import random
     cache_version = f"{int(time.time())}-{random.randint(1000, 9999)}"
+    
+    # Escape values for safe HTML/JS embedding
+    safe_api_url = api_base_url.replace('"', '\\"').replace("'", "\\'")
+    safe_cache_version = cache_version.replace('"', '\\"').replace("'", "\\'")
+    request_url = f"{request.url.scheme}://{request.url.netloc}"
+    safe_request_url = request_url.replace('"', '\\"').replace("'", "\\'")
     
     embed_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -406,7 +426,7 @@ async def embed_widget(request: Request):
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Chatbot Widget</title>
-    <link rel="stylesheet" crossorigin href="/static/widget/assets/index.css?v={cache_version}">
+    <link rel="stylesheet" crossorigin href="/static/widget/assets/index.css?v={safe_cache_version}">
     <style>
         * {{
             margin: 0;
@@ -428,14 +448,17 @@ async def embed_widget(request: Request):
     <div id="root"></div>
     <script>
         // Set API base URL for the widget
-        window.WIDGET_API_BASE_URL = "{api_base_url}";
+        window.WIDGET_API_BASE_URL = "{safe_api_url}";
         // Force reload settings on every load
         window.WIDGET_FORCE_RELOAD = true;
         // Widget version for cache verification
-        window.WIDGET_VERSION = "{cache_version}";
-        console.log("Chatbot Widget loaded - Version:", window.WIDGET_VERSION);
+        window.WIDGET_VERSION = "{safe_cache_version}";
+        console.log("🚀 Chatbot Widget Embed Initialized:");
+        console.log("  Version:", window.WIDGET_VERSION);
+        console.log("  API Base URL:", window.WIDGET_API_BASE_URL);
+        console.log("  Request URL:", "{safe_request_url}");
     </script>
-    <script type="module" crossorigin src="/static/widget/assets/index.js?v={cache_version}"></script>
+    <script type="module" crossorigin src="/static/widget/assets/index.js?v={safe_cache_version}"></script>
 </body>
 </html>"""
     
@@ -443,7 +466,8 @@ async def embed_widget(request: Request):
     # Allow embedding in iframes from any origin
     response.headers["Content-Security-Policy"] = "frame-ancestors *;"
     # Prevent caching of the embed page itself
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
+    response.headers["X-Widget-Version"] = cache_version
     return response

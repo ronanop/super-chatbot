@@ -9,6 +9,7 @@ const USER_AVATAR = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/s
 const defaultSettings = {
   bot_name: "Cache Digitech Virtual Assistant",
   bot_icon_url: null,
+  header_image_url: null,
   welcome_message: "Hi! I'm the Cache Digitech assistant. Ask me anything about our services, projects, or how we can help your business.",
   primary_color: "#4338ca",
   secondary_color: "#6366f1",
@@ -356,15 +357,22 @@ export default function ChatWidget() {
   const [infoSubmitted, setInfoSubmitted] = useState(false);
   const [formData, setFormData] = useState({ name: "", email: "", phone: "" });
   const [uiSettings, setUiSettings] = useState(defaultSettings);
-  const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
+  // Use embed-provided URL if available, otherwise use default
+  const [apiBaseUrl, setApiBaseUrl] = useState(
+    typeof window !== 'undefined' && window.WIDGET_API_BASE_URL 
+      ? window.WIDGET_API_BASE_URL 
+      : DEFAULT_API_BASE_URL
+  );
   const [isRecording, setIsRecording] = useState(false);
   const [isVoiceSupported, setIsVoiceSupported] = useState(false);
   const [shouldAutoSubmit, setShouldAutoSubmit] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(true); // Start as true to show widget immediately with defaults
+  const lastSettingsTimestampRef = useRef(null); // Track last settings update timestamp
 
   const chatBodyRef = useRef(null);
   const typewriterIntervalRef = useRef(null);
   const recognitionRef = useRef(null);
+  const initializationRef = useRef(false); // Prevent multiple initializations
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -431,63 +439,205 @@ export default function ChatWidget() {
     };
   }, []);
 
-  // Fetch API URL from backend on mount
+  // Check widget version and force reload if needed
   useEffect(() => {
-    fetchApiConfig().then((url) => {
-      setApiBaseUrl(url);
-      console.log("ChatWidget API Base URL:", url);
-    });
+    const storedVersion = sessionStorage.getItem('widget_version');
+    const currentVersion = window.WIDGET_VERSION;
+    
+    if (currentVersion && storedVersion && storedVersion !== currentVersion) {
+      console.log('Widget version changed, clearing cache...', { storedVersion, currentVersion });
+      sessionStorage.clear();
+      // Force reload after a short delay to ensure cleanup
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
+      return;
+    }
+    
+    if (currentVersion) {
+      sessionStorage.setItem('widget_version', currentVersion);
+    }
   }, []);
 
-  // Fetch UI settings on mount (after API URL is fetched)
+  // Fetch API URL and UI settings together on mount
   useEffect(() => {
-    if (!apiBaseUrl) return;
+    // Prevent multiple initializations (React StrictMode in dev causes double renders)
+    if (initializationRef.current) {
+      return;
+    }
+    initializationRef.current = true;
     
-    const fetchSettings = async () => {
-      try {
-        // Always use cache-busting to ensure fresh settings
-        // Use timestamp + random to ensure uniqueness even if called multiple times quickly
-        const cacheBuster = `?v=${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        const forceReload = window.WIDGET_FORCE_RELOAD || false;
-        
-        const response = await fetch(`${apiBaseUrl}/admin/bot-ui/api/settings${cacheBuster}`, {
-          cache: forceReload ? 'reload' : 'no-store',
-          headers: {
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        });
-        if (response.ok) {
-          const settings = await response.json();
-          console.log("✅ UI Settings fetched successfully:", {
-            bot_name: settings.bot_name,
-            primary_color: settings.primary_color,
-            timestamp: new Date().toISOString()
+    const initializeWidget = async () => {
+      // First, fetch the correct API URL
+      const resolvedApiUrl = await fetchApiConfig();
+      setApiBaseUrl(resolvedApiUrl);
+      console.log("ChatWidget API Base URL:", resolvedApiUrl);
+      
+      // Then fetch UI settings using the resolved URL
+      const fetchSettings = async (apiUrl, retryCount = 0) => {
+        try {
+          // Always use cache-busting to ensure fresh settings
+          const cacheBuster = `?v=${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const forceReload = window.WIDGET_FORCE_RELOAD || false;
+          
+          console.log('Fetching UI settings...', { apiUrl, cacheBuster, forceReload, retryCount });
+          
+          // Create abort controller for timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+          
+          const response = await fetch(`${apiUrl}/admin/bot-ui/api/settings${cacheBuster}`, {
+            cache: forceReload ? 'reload' : 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0',
+              'X-Requested-With': 'XMLHttpRequest'
+            },
+            signal: controller.signal
           });
-          setUiSettings({ ...defaultSettings, ...settings });
-          // Update welcome message if custom
-          if (settings.welcome_message) {
-            setMessages([{
-              id: "welcome",
-              role: "assistant",
-              content: settings.welcome_message,
-            }]);
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            const settings = await response.json();
+            const currentTimestamp = settings.settings_updated_at || null;
+            
+            // Check if settings have changed
+            const settingsChanged = lastSettingsTimestampRef.current !== null && 
+                                   lastSettingsTimestampRef.current !== currentTimestamp;
+            
+            if (settingsChanged) {
+              console.log('🔄 UI Settings updated detected:', { 
+                bot_name: settings.bot_name, 
+                primary_color: settings.primary_color,
+                old_timestamp: lastSettingsTimestampRef.current,
+                new_timestamp: currentTimestamp
+              });
+            } else {
+              console.log('✅ UI Settings fetched:', { 
+                bot_name: settings.bot_name, 
+                primary_color: settings.primary_color,
+                timestamp: currentTimestamp || new Date().toISOString()
+              });
+            }
+            
+            // Update timestamp reference
+            lastSettingsTimestampRef.current = currentTimestamp;
+            
+            setUiSettings({ ...defaultSettings, ...settings });
+            // Update welcome message if custom
+            if (settings.welcome_message) {
+              setMessages((prev) => {
+                // Only update welcome message if it's the first message or if it changed
+                const firstMsg = prev[0];
+                if (!firstMsg || firstMsg.id === "welcome") {
+                  return [{
+                    id: "welcome",
+                    role: "assistant",
+                    content: settings.welcome_message,
+                  }, ...prev.slice(1)];
+                }
+                return prev;
+              });
+            }
+            setSettingsLoaded(true);
+          } else {
+            console.warn('Failed to fetch UI settings:', response.status, response.statusText);
+            // If fetch fails, still mark as loaded to show widget with defaults
+            setSettingsLoaded(true);
           }
-          setSettingsLoaded(true);
-        } else {
-          // If fetch fails, still mark as loaded to show widget with defaults
-          setSettingsLoaded(true);
+        } catch (err) {
+          console.error("Failed to fetch UI settings:", err);
+          
+          // Retry once if it's a network error/timeout and we haven't retried yet
+          if (retryCount === 0 && (err.name === 'TypeError' || err.name === 'TimeoutError' || err.name === 'AbortError')) {
+            console.log('Retrying settings fetch after error...');
+            setTimeout(() => fetchSettings(apiUrl, 1), 1000);
+          } else {
+            // Use defaults on error, but still mark as loaded
+            console.warn('Using default UI settings due to fetch failure');
+            setSettingsLoaded(true);
+          }
         }
-      } catch (err) {
-        console.error("Failed to fetch UI settings:", err);
-        // Use defaults on error, but still mark as loaded
-        setSettingsLoaded(true);
-      }
+      };
+      
+      // Fetch settings with the resolved API URL
+      fetchSettings(resolvedApiUrl);
     };
-    fetchSettings();
-  }, [apiBaseUrl]);
+    
+    initializeWidget();
+  }, []);
+
+  // Periodically check for settings updates (every 5 seconds)
+  useEffect(() => {
+    if (!apiBaseUrl || !settingsLoaded) return;
+    
+    const pollInterval = setInterval(() => {
+      // Only poll if we have a timestamp to compare
+      if (lastSettingsTimestampRef.current === null) return;
+      
+      const checkForUpdates = async () => {
+        try {
+          const cacheBuster = `?v=${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout for polling
+          
+          const response = await fetch(`${apiBaseUrl}/admin/bot-ui/api/settings${cacheBuster}`, {
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0',
+              'X-Requested-With': 'XMLHttpRequest'
+            },
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            const settings = await response.json();
+            const currentTimestamp = settings.settings_updated_at || null;
+            
+            // Check if settings have changed
+            if (lastSettingsTimestampRef.current !== null && 
+                lastSettingsTimestampRef.current !== currentTimestamp) {
+              console.log('🔄 Settings updated detected via polling, refreshing...');
+              
+              // Update settings
+              lastSettingsTimestampRef.current = currentTimestamp;
+              setUiSettings({ ...defaultSettings, ...settings });
+              
+              // Update welcome message if it changed
+              if (settings.welcome_message) {
+                setMessages((prev) => {
+                  const firstMsg = prev[0];
+                  if (!firstMsg || firstMsg.id === "welcome") {
+                    return [{
+                      id: "welcome",
+                      role: "assistant",
+                      content: settings.welcome_message,
+                    }, ...prev.slice(1)];
+                  }
+                  return prev;
+                });
+              }
+            }
+          }
+        } catch (err) {
+          // Silently fail during polling - don't spam console
+          if (err.name !== 'AbortError') {
+            console.debug('Settings poll check failed:', err.message);
+          }
+        }
+      };
+      
+      checkForUpdates();
+    }, 5000); // Poll every 5 seconds
+    
+    return () => clearInterval(pollInterval);
+  }, [apiBaseUrl, settingsLoaded]);
 
   // Apply custom CSS if provided
   useEffect(() => {
@@ -596,7 +746,7 @@ export default function ChatWidget() {
   const handleSendMessage = async (event) => {
     event?.preventDefault();
     const trimmed = input.trim();
-    if (!trimmed || isLoading) return;
+    if (!trimmed || isLoading || (showInfoForm && !infoSubmitted)) return; // Block sending if form is shown
 
     const pendingId = createMessageId();
     const assistantMessageId = createMessageId();
@@ -667,18 +817,32 @@ export default function ChatWidget() {
             clearInterval(typewriterIntervalRef.current);
             typewriterIntervalRef.current = null;
           }
-          setMessages((prev) =>
-            prev.map((msg) =>
+          
+          // Update messages and check for form trigger
+          setMessages((prev) => {
+            const updatedMessages = prev.map((msg) =>
               msg.id === assistantMessageId
                 ? { ...msg, isTyping: false }
                 : msg
-            )
-          );
+            );
+            
+            // Check user message count after updating
+            const userMessageCount = updatedMessages.filter(msg => msg.role === 'user').length;
+            if (userMessageCount >= 2 && !infoSubmitted && !showInfoForm) {
+              // Show form after 2nd message response completes
+              setTimeout(() => {
+                setShowInfoForm(true);
+              }, 100);
+            } else if (data.prompt_for_info && !infoSubmitted) {
+              // Fallback to backend prompt if configured
+              setTimeout(() => {
+                setShowInfoForm(true);
+              }, 100);
+            }
+            
+            return updatedMessages;
+          });
           setIsLoading(false);
-          
-          if (data.prompt_for_info && !infoSubmitted) {
-            setShowInfoForm(true);
-          }
         }
       }, 30); // 30ms per word (adjustable for speed - lower = faster)
 
@@ -880,8 +1044,10 @@ export default function ChatWidget() {
               background: `linear-gradient(135deg, ${uiSettings.primary_color}, ${uiSettings.secondary_color})`,
             }}
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-xl">
-              {uiSettings.bot_icon_url ? (
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-xl overflow-hidden flex-shrink-0">
+              {uiSettings.header_image_url ? (
+                <img src={uiSettings.header_image_url} alt="Bot Header" className="h-full w-full rounded-full object-cover" />
+              ) : uiSettings.bot_icon_url ? (
                 <img src={uiSettings.bot_icon_url} alt="Bot" className="h-full w-full rounded-full object-cover" />
               ) : (
                 "🤖"
@@ -914,7 +1080,7 @@ export default function ChatWidget() {
               <div className="rounded-2xl border border-indigo-200 bg-white p-4 text-sm text-slate-700 shadow animate-fade-in-up">
                 <p className="mb-3 font-semibold text-indigo-600">Let us stay in touch</p>
                 <p className="mb-4 text-xs text-slate-500">
-                  Share your contact details so our team can follow up with tailored recommendations.
+                  Please share your contact details to continue chatting. Our team can follow up with tailored recommendations.
                 </p>
                 <form onSubmit={handleInfoSubmit} className="flex flex-col gap-3 text-sm">
                   <input
@@ -1040,7 +1206,7 @@ export default function ChatWidget() {
                     e.target.style.borderColor = uiSettings.background_color === '#ffffff' ? '#cbd5e1' : 'rgba(255,255,255,0.2)';
                   }
                 }}
-                disabled={isLoading || isRecording}
+                disabled={isLoading || isRecording || (showInfoForm && !infoSubmitted)}
               />
               <button
                 type="button"
@@ -1053,7 +1219,7 @@ export default function ChatWidget() {
                   opacity: (!isVoiceSupported || isLoading) ? 0.5 : 1,
                   color: 'white',
                 }}
-                disabled={isLoading || !isVoiceSupported}
+                disabled={isLoading || !isVoiceSupported || (showInfoForm && !infoSubmitted)}
                 title={
                   !isVoiceSupported 
                     ? 'Voice input not supported in this browser' 
@@ -1089,7 +1255,7 @@ export default function ChatWidget() {
                     e.target.style.transform = "scale(1)";
                   }
                 }}
-                disabled={isLoading || !input.trim()}
+                disabled={isLoading || !input.trim() || (showInfoForm && !infoSubmitted)}
               >
                 {isLoading ? (
                   <svg className="chat-action-icon animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

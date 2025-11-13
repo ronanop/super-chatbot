@@ -3,9 +3,9 @@
 // This allows changing the IP address through the admin panel without rebuilding
 
 // Fallback URLs (used if backend config fetch fails)
-const NETWORK_IP = "192.168.0.120";
+const NETWORK_IP = "192.168.36.34";
 const NETWORK_URL = `http://${NETWORK_IP}:8000`;
-const OLD_IP = "192.168.36.34";
+const OLD_IP = "192.168.0.120";
 
 // Get environment URL, but ignore if it's the old IP
 let envUrl = import.meta.env.VITE_API_BASE_URL;
@@ -18,27 +18,42 @@ if (envUrl && envUrl.includes(OLD_IP)) {
 let defaultUrl = envUrl || NETWORK_URL;
 
 // Check if running in embed mode (iframe) - use window.WIDGET_API_BASE_URL if set
-let API_BASE_URL = window.WIDGET_API_BASE_URL || defaultUrl;
+// Note: fetchApiConfig() will prioritize window.WIDGET_API_BASE_URL when called
+let API_BASE_URL = defaultUrl;
 
 // Function to fetch API config from backend
 async function fetchApiConfig() {
-  // Try multiple possible backend URLs
+  // If running in embed mode with WIDGET_API_BASE_URL set, use it directly
+  if (window.WIDGET_API_BASE_URL) {
+    console.log("✅ Using embed-provided API URL:", window.WIDGET_API_BASE_URL);
+    API_BASE_URL = window.WIDGET_API_BASE_URL;
+    return API_BASE_URL;
+  }
+  
+  // Try multiple possible backend URLs in order of likelihood
+  // Try localhost first (fastest), then network IPs
   const possibleUrls = [
-    defaultUrl,
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    defaultUrl,
     NETWORK_URL,
-    "http://192.168.0.120:8000", // Current IP
   ];
 
   for (const baseUrl of possibleUrls) {
     try {
+      // Add timeout to prevent long waits on unreachable URLs
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout per URL
+      
       const response = await fetch(`${baseUrl}/admin/api/config`, {
         method: "GET",
         headers: {
           "Accept": "application/json",
         },
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
       
       if (response.ok) {
         const config = await response.json();
@@ -50,7 +65,7 @@ async function fetchApiConfig() {
         }
       }
     } catch (err) {
-      // Try next URL
+      // Try next URL (silently continue)
       continue;
     }
   }
