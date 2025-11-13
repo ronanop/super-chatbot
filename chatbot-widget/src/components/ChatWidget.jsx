@@ -864,26 +864,6 @@ export default function ChatWidget() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const detectLanguageFromMessages = () => {
-    // Check last user message to determine language
-    const lastUserMessage = messages.filter(msg => msg.role === 'user').pop();
-    if (!lastUserMessage) return 'en-US';
-    
-    const text = lastUserMessage.content.toLowerCase();
-    
-    // Check for Hindi keywords
-    const hinglishKeywords = ['hai', 'hain', 'ho', 'ka', 'ki', 'ke', 'ko', 'se', 'mein', 'aur', 'kya', 'kyun', 'main', 'tum', 'aap'];
-    const hasHindiKeywords = hinglishKeywords.some(keyword => text.includes(keyword));
-    
-    // Check for Devanagari script
-    const hasDevanagari = /[\u0900-\u097F]/.test(lastUserMessage.content);
-    
-    if (hasDevanagari || hasHindiKeywords) {
-      return 'hi-IN'; // Hindi/Hinglish
-    }
-    
-    return 'en-US'; // Default to English
-  };
 
   const handleVoiceInput = () => {
     if (!isVoiceSupported || !recognitionRef.current) {
@@ -907,9 +887,8 @@ export default function ChatWidget() {
       try {
         setError(null);
         setShouldAutoSubmit(false);
-        // Set language based on last user message
-        const detectedLang = detectLanguageFromMessages();
-        recognitionRef.current.lang = detectedLang;
+        // Always use English for voice recognition
+        recognitionRef.current.lang = 'en-US';
         setIsRecording(true);
         recognitionRef.current.start();
       } catch (err) {

@@ -3,19 +3,31 @@
 // This allows changing the IP address through the admin panel without rebuilding
 
 // Fallback URLs (used if backend config fetch fails)
-const NETWORK_IP = "192.168.36.34";
-const NETWORK_URL = `http://${NETWORK_IP}:8000`;
-const OLD_IP = "192.168.0.120";
+// Use environment variable or try to detect from current hostname
+const getDefaultUrl = () => {
+  // First, try environment variable
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envUrl) {
+    return envUrl;
+  }
+  
+  // If in browser, try to detect from current location
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    const port = window.location.port || (protocol === 'https:' ? '443' : '80');
+    
+    // If same origin, use current origin
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return `${protocol}//${hostname}${port && port !== '80' && port !== '443' ? `:${port}` : ''}`;
+    }
+  }
+  
+  // Fallback to localhost for development
+  return 'http://localhost:8000';
+};
 
-// Get environment URL, but ignore if it's the old IP
-let envUrl = import.meta.env.VITE_API_BASE_URL;
-if (envUrl && envUrl.includes(OLD_IP)) {
-  console.warn(`⚠️ Old IP detected in environment: ${envUrl}. Will try to fetch from backend.`);
-  envUrl = null; // Ignore old IP
-}
-
-// Default fallback URL
-let defaultUrl = envUrl || NETWORK_URL;
+const defaultUrl = getDefaultUrl();
 
 // Check if running in embed mode (iframe) - use window.WIDGET_API_BASE_URL if set
 // Note: fetchApiConfig() will prioritize window.WIDGET_API_BASE_URL when called
@@ -31,13 +43,29 @@ async function fetchApiConfig() {
   }
   
   // Try multiple possible backend URLs in order of likelihood
-  // Try localhost first (fastest), then network IPs
-  const possibleUrls = [
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    defaultUrl,
-    NETWORK_URL,
-  ];
+  // Try current origin first, then localhost, then default
+  const possibleUrls = [];
+  
+  // If in browser, add current origin
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    if (origin && !possibleUrls.includes(origin)) {
+      possibleUrls.push(origin);
+    }
+  }
+  
+  // Add default URL
+  if (defaultUrl && !possibleUrls.includes(defaultUrl)) {
+    possibleUrls.push(defaultUrl);
+  }
+  
+  // Add localhost fallbacks for development
+  if (!possibleUrls.includes('http://localhost:8000')) {
+    possibleUrls.push('http://localhost:8000');
+  }
+  if (!possibleUrls.includes('http://127.0.0.1:8000')) {
+    possibleUrls.push('http://127.0.0.1:8000');
+  }
 
   for (const baseUrl of possibleUrls) {
     try {

@@ -40,8 +40,12 @@ async def startup_event():
         logger.error("✗ /admin/logs route is NOT registered!")
         logger.error(f"Available admin routes: {admin_routes}")
 
-allowed_origins = os.getenv("ALLOWED_ORIGINS")
+# CORS Configuration
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "")
+environment = os.getenv("ENVIRONMENT", "production").lower()
+
 if allowed_origins and allowed_origins.strip() == "*":
+    # Allow all origins (not recommended for production)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -49,18 +53,9 @@ if allowed_origins and allowed_origins.strip() == "*":
         allow_methods=["*"],
         allow_headers=["*"],
     )
-else:
-    origins = ([origin.strip() for origin in allowed_origins.split(",") if origin.strip()]
-               if allowed_origins
-               else [
-                   "http://localhost:5173",
-                   "http://localhost:5174",
-                   "http://localhost:5175",
-                   "http://127.0.0.1:5173",
-                   "http://127.0.0.1:5174",
-                   "http://127.0.0.1:5175",
-               ])
-
+elif allowed_origins:
+    # Use configured origins
+    origins = [origin.strip() for origin in allowed_origins.split(",") if origin.strip()]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
@@ -68,6 +63,24 @@ else:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+elif environment == "development":
+    # Development defaults
+    origins = [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175",
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+# Production: No CORS middleware if no origins specified (most secure)
 
 
 class ChatRequest(BaseModel):
@@ -114,60 +127,6 @@ def _get_or_create_session(db: Session, session_id: int | None) -> models.ChatSe
     return session
 
 
-def _detect_language(text: str) -> str:
-    """Detect language of the input text. Returns 'hindi', 'hinglish', or 'english'."""
-    if not text or not text.strip():
-        return "english"
-    
-    text_lower = text.lower()
-    
-    # Common Hinglish patterns (Hindi words written in English)
-    hinglish_keywords = [
-        'hai', 'hain', 'ho', 'hoga', 'hogi', 'honge', 'ka', 'ki', 'ke', 'ko', 'se', 'mein', 'par',
-        'aur', 'ya', 'lekin', 'magar', 'kyunki', 'jab', 'tab', 'toh', 'bhi', 'hi', 'sirf', 'bas',
-        'kya', 'kyun', 'kaise', 'kab', 'kahan', 'kisne', 'kisko', 'kiski', 'kiska',
-        'main', 'tum', 'aap', 'woh', 'yeh', 'usne', 'maine', 'tumne', 'aapne',
-        'acha', 'theek', 'sahi', 'galat', 'badhiya', 'mast', 'bohot', 'bahut',
-        'chahiye', 'chahiye', 'karna', 'karna', 'hona', 'jana', 'aana', 'lena', 'dena'
-    ]
-    
-    # Check for Devanagari script (Hindi) characters
-    devanagari_chars = sum(1 for char in text if '\u0900' <= char <= '\u097F')
-    # Check for English/Latin characters
-    latin_chars = sum(1 for char in text if char.isalpha() and ord(char) < 128)
-    
-    # Count Hinglish keywords
-    hinglish_count = sum(1 for keyword in hinglish_keywords if keyword in text_lower)
-    
-    total_chars = len([c for c in text if c.isalpha()])
-    
-    if total_chars == 0:
-        return "english"
-    
-    devanagari_ratio = devanagari_chars / total_chars if total_chars > 0 else 0
-    latin_ratio = latin_chars / total_chars if total_chars > 0 else 0
-    
-    # If Devanagari script is present
-    if devanagari_chars > 0:
-        # If significant Devanagari characters present
-        if devanagari_ratio > 0.3:
-            # Check if it's mixed (Hinglish)
-            if latin_ratio > 0.15 or hinglish_count > 2:
-                return "hinglish"
-            else:
-                return "hindi"
-        elif devanagari_ratio > 0.1:
-            # Some Devanagari but mostly other - likely Hinglish
-            return "hinglish"
-    
-    # Check for Hinglish keywords (Hindi words in English script)
-    if hinglish_count >= 3 or (hinglish_count >= 2 and latin_ratio > 0.5):
-        return "hinglish"
-    
-    # Default to English
-    return "english"
-
-
 def _build_context(query: str) -> tuple[str, list[str]]:
     matches = query_similar(query, top_k=5)
     if not matches:
@@ -207,17 +166,8 @@ async def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)) -> 
 
     context, _sources = _build_context(payload.message)
     
-    # Detect user's language
-    detected_language = _detect_language(payload.message)
-    
-    # Build language-specific instructions
-    language_instruction = ""
-    if detected_language == "hindi":
-        language_instruction = "IMPORTANT: The user is communicating in Hindi. You MUST respond entirely in Hindi (Devanagari script). Use natural, conversational Hindi."
-    elif detected_language == "hinglish":
-        language_instruction = "IMPORTANT: The user is communicating in Hinglish (Hindi-English mix). You MUST respond in Hinglish - naturally mixing Hindi and English words as Indians commonly do. Use Devanagari script for Hindi words and English script for English words. This is the natural way Indians communicate."
-    else:
-        language_instruction = "Respond in English."
+    # Language instruction - English only
+    language_instruction = "Respond in English."
     
     # Get custom instructions from database
     app_settings = db.query(models.AppSettings).first()
@@ -471,3 +421,24 @@ async def embed_widget(request: Request, db: Session = Depends(get_db)):
     response.headers["Expires"] = "0"
     response.headers["X-Widget-Version"] = cache_version
     return response
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring and load balancers."""
+    try:
+        # Check database connection
+        from sqlalchemy import text
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        db_status = "healthy"
+    except Exception as e:
+        db_status = f"unhealthy: {str(e)}"
+    
+    return {
+        "status": "healthy" if db_status == "healthy" else "degraded",
+        "database": db_status,
+        "service": "Cache Digitech Chatbot API",
+        "version": "1.0.0"
+    }

@@ -32,7 +32,7 @@ No Need of N8N or readymade RAG builds : Pure coding
 - 📚 **Knowledge Base Management** - Upload PDFs and crawl websites
 - 🔍 **RAG (Retrieval-Augmented Generation)** - Context-aware responses using Pinecone vector database
 - 🌐 **Web Crawler** - Intelligent web scraping with JavaScript rendering support
-- 💬 **Multi-language Support** - English, Hindi, and Hinglish
+- 💬 **English Language Support** - Optimized for English conversations
 - 🎤 **Voice Input** - Speech-to-text functionality
 - 📊 **Analytics Dashboard** - Real-time statistics and charts
 - 🔐 **Secure Admin Panel** - Session-based authentication
