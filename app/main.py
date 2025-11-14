@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Generator
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.db import models
 from app.db.session import SessionLocal
 from app.services.gemini import get_generation_model
+from app.services.query_enhancement import enhance_query_for_search
 from app.vectorstore.pinecone_store import query_similar
 from app.admin.routes import router as admin_router
 
@@ -128,22 +129,87 @@ def _get_or_create_session(db: Session, session_id: int | None) -> models.ChatSe
 
 
 def _build_context(query: str) -> tuple[str, list[str]]:
-    matches = query_similar(query, top_k=5)
-    if not matches:
+    """
+    Build context from knowledge base for the given query.
+    Uses query enhancement to improve retrieval for short/specific queries.
+    Returns tuple of (context_text, sources_list).
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Enhance query with multiple variations for better retrieval
+    # Use LLM expansion only for very short queries (adds latency)
+    use_llm_expansion = len(query.split()) <= 3
+    query_variations = enhance_query_for_search(query, use_llm=use_llm_expansion)
+    
+    logger.debug(f"Query: '{query}' -> {len(query_variations)} variations: {query_variations[:3]}")
+    
+    # Collect matches from all query variations
+    all_matches = []
+    seen_match_ids = set()
+    
+    # Try original query first with higher top_k and lower threshold
+    original_matches = query_similar(query, top_k=15, min_score=0.15)  # Very low threshold for better recall
+    logger.debug(f"Original query found {len(original_matches)} matches")
+    
+    for match in original_matches:
+        match_id = getattr(match, "id", None)
+        score = getattr(match, "score", 0.0)
+        if match_id and match_id not in seen_match_ids:
+            seen_match_ids.add(match_id)
+            all_matches.append((match, score, "original"))
+    
+    # Try enhanced query variations (limit to avoid too many API calls)
+    max_variations = 5 if use_llm_expansion else 7  # Fewer if using LLM (already slower)
+    for variation in query_variations[1:max_variations]:
+        if len(all_matches) >= 25:  # Limit total matches
+            break
+        variation_matches = query_similar(variation, top_k=8, min_score=0.15)
+        for match in variation_matches:
+            match_id = getattr(match, "id", None)
+            score = getattr(match, "score", 0.0)
+            if match_id and match_id not in seen_match_ids:
+                seen_match_ids.add(match_id)
+                all_matches.append((match, score, variation[:30]))  # Store which variation found it
+    
+    if not all_matches:
+        logger.debug(f"No matches found for query: '{query}'")
         return "", []
+
+    # Sort by score (highest first) - use the score we stored
+    sorted_matches = sorted(all_matches, key=lambda x: x[1], reverse=True)
+    logger.debug(f"Total unique matches: {len(sorted_matches)}, top score: {sorted_matches[0][1] if sorted_matches else 0:.3f}")
 
     snippets: list[str] = []
     sources: list[str] = []
-    for match in matches:
+    seen_texts = set()  # Avoid duplicate content
+    total_length = 0
+    
+    for match_tuple in sorted_matches:
+        match = match_tuple[0]
         metadata = getattr(match, "metadata", {}) or {}
         text = metadata.get("text")
-        if not text:
+        if not text or not text.strip():
             continue
-        source = metadata.get("source", "Knowledge Base")
-        snippets.append(f"Source: {source}\n{text}")
-        sources.append(source)
+        
+        # Skip duplicates using a more robust check
+        text_preview = text.strip()[:150]  # Use first 150 chars for duplicate detection
+        if text_preview in seen_texts:
+            continue
+        seen_texts.add(text_preview)
+        
+        # Check length limit before adding
+        # Don't include "Source:" prefix - let the model use information naturally
+        snippet_text = text.strip()
+        if total_length + len(snippet_text) > 6000:  # Increased limit for better context
+            break
+        
+        snippets.append(snippet_text)
+        sources.append(metadata.get("source", "Knowledge Base"))
+        total_length += len(snippet_text)
 
     combined = "\n\n".join(snippets)
+    logger.debug(f"Built context: {len(snippets)} snippets, {total_length} chars")
     return combined, sources
 
 
@@ -153,7 +219,11 @@ async def health_check() -> dict[str, str]:
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
+async def chat_endpoint(
+    payload: ChatRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+) -> ChatResponse:
     session = _get_or_create_session(db, payload.session_id)
 
     user_message = models.Message(
@@ -178,9 +248,14 @@ async def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)) -> 
         base_instructions = custom_instructions.strip()
     else:
         base_instructions = (
-            "You are Cache Digitech's virtual assistant. Provide concise, precise answers in Cache Digitech's tone. "
-            "Prioritize knowledge base context; if nothing relevant is found, draw on Gemini's general knowledge and frame the response as Cache Digitech's solution. "
-            "Never offer long essays; stay to the point, highlight next steps, and offer to connect with a human when appropriate."
+            "You are Cache Digitech's virtual assistant. Provide helpful, accurate, and natural answers in Cache Digitech's professional tone. "
+            "Use the context provided below as your primary source of information. "
+            "Answer questions naturally and conversationally - as if you're a knowledgeable team member speaking directly to the user. "
+            "DO NOT mention 'knowledge base', 'according to our knowledge base', 'based on the information', or similar phrases. "
+            "Simply answer the question naturally using the information provided. "
+            "If the context doesn't fully answer the question, provide a helpful response based on what you know, but don't explicitly state where the information comes from. "
+            "Be conversational, friendly, and human-like - write as if you're having a natural conversation. "
+            "Stay concise and to the point, highlight next steps when relevant, and offer to connect with a human when appropriate."
         )
     
     # Get current date and time
@@ -199,24 +274,65 @@ async def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)) -> 
         f"- Full date and time: {current_datetime}\n"
         f"- Use this information when answering questions about dates, times, or scheduling.\n\n"
         f"LANGUAGE REQUIREMENT: {language_instruction}\n\n"
-        "Formatting guidelines:\n"
-        "- Use **bold** (double asterisks) for important words, key terms, service names, and section headers.\n"
-        "- Include full URLs (https://...) when referencing websites or resources - these will be automatically converted to clickable links.\n"
+        "FORMATTING GUIDELINES (CRITICAL - Always follow these):\n"
+        "- ALWAYS use **bold** (double asterisks) for important keywords, especially in long answers.\n"
+        "- Bold ALL service names, product names, key terms, important concepts, and section headers.\n"
+        "- Bold important phrases like: **Service Name**, **Key Feature**, **Important Term**.\n"
+        "- For lists of services or features, bold each item name: **Service 1**, **Service 2**, etc.\n"
+        "- When describing multiple items, bold the name/title of each item consistently.\n"
+        "- Include full URLs (https://...) when referencing websites - these will be automatically converted to clickable links.\n"
         "- Use clear structure with line breaks between sections.\n"
-        "- Example: **Service Name**: Description text. Visit https://example.com for more details."
+        "- For long answers, ensure EVERY important keyword, service name, or key term is bolded.\n"
+        "\n"
+        "Examples:\n"
+        "- Good: We offer **Infrastructure Audit**, **Security Assessment**, and **Compliance Review** services.\n"
+        "- Good: **Managed Infrastructure Services**: We provide 24/7 monitoring...\n"
+        "- Good: Our **Cybersecurity Services** include **Firewall Management** and **Consulting Services**.\n"
+        "- Bad: We offer Infrastructure Audit, Security Assessment services. (missing bold)\n"
     )
 
     if context:
+        # Check if this is likely a long answer (service lists, detailed descriptions, etc.)
+        is_long_answer_query = any(keyword in payload.message.lower() for keyword in [
+            "services", "service", "offer", "provide", "what do you", "what can you",
+            "capabilities", "features", "products", "solutions", "tell me about"
+        ])
+        
+        formatting_emphasis = ""
+        if is_long_answer_query:
+            formatting_emphasis = (
+                "\n\nIMPORTANT FORMATTING REMINDER:\n"
+                "- This appears to be a question about services/offerings - ensure ALL service names, "
+                "key terms, and important keywords are BOLDED using **double asterisks**.\n"
+                "- Be consistent - if you mention a service name once, bold it every time.\n"
+                "- For lists, bold each item name/title.\n"
+            )
+        
         prompt = (
             f"{instructions}\n\n"
-            f"Context:\n{context}\n\n"
-            f"User question: {payload.message}"
+            f"CONTEXT INFORMATION:\n{context}\n\n"
+            f"USER QUESTION: {payload.message}\n\n"
+            f"{formatting_emphasis}"
+            f"INSTRUCTIONS:\n"
+            f"- Answer the question naturally using the context information above\n"
+            f"- Write as if you're a knowledgeable team member having a conversation\n"
+            f"- DO NOT say 'based on the knowledge base', 'according to our knowledge base', or similar phrases\n"
+            f"- DO NOT mention 'context', 'information provided', or 'sources'\n"
+            f"- Simply answer directly and naturally - integrate the information seamlessly into your response\n"
+            f"- If the context directly answers the question, use that information naturally\n"
+            f"- If the context is partially relevant, combine it with your knowledge seamlessly\n"
+            f"- Be conversational, friendly, and human-like\n"
+            f"- ALWAYS bold important keywords, service names, and key terms - especially in long answers\n"
+            f"- Always be accurate and professional"
         )
     else:
+        # No context found - still allow the chatbot to respond naturally
         prompt = (
             f"{instructions}\n\n"
-            f"No additional context is available. Answer the question if you can:\n"
-            f"{payload.message}"
+            f"USER QUESTION: {payload.message}\n\n"
+            f"Provide a helpful, natural, and professional answer. "
+            f"If you're unsure about Cache Digitech-specific information, suggest the user contact them directly. "
+            f"Answer conversationally as if you're a team member."
         )
 
     model = get_generation_model()
@@ -237,12 +353,32 @@ async def chat_endpoint(payload: ChatRequest, db: Session = Depends(get_db)) -> 
     db.add(assistant_message)
     db.commit()
 
+    # Auto-training: Learn from this conversation (in background)
+    # Only train if we have context (successful knowledge base response) and auto-training is enabled
+    auto_training_enabled = os.getenv("ENABLE_AUTO_TRAINING", "true").lower() == "true"
+    if context and auto_training_enabled:
+        try:
+            from app.services.auto_training import process_conversation_for_training
+            
+            # Add background task for auto-training
+            # Pass session_id and message content (not db session - will create new one in task)
+            background_tasks.add_task(
+                process_conversation_for_training,
+                session.id,
+                payload.message,
+                reply_text
+            )
+        except Exception as e:
+            # Log but don't fail the request if training fails
+            import logging
+            logging.getLogger(__name__).warning(f"Auto-training setup failed: {e}")
+
     user_message_count = (
         db.query(models.Message)
         .filter(models.Message.session_id == session.id, models.Message.is_user_message.is_(True))
         .count()
     )
-    prompt_for_info = user_message_count >= 3
+    prompt_for_info = user_message_count >= 2
 
     return ChatResponse(reply=reply_text, session_id=session.id, prompt_for_info=prompt_for_info)
 

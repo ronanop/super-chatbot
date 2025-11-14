@@ -91,14 +91,36 @@ def upsert_chunks(
                 pass
 
 
-def query_similar(text: str, *, top_k: int = 5) -> list[dict]:
+def query_similar(text: str, *, top_k: int = 5, min_score: float = 0.0) -> list[dict]:
+    """
+    Query similar vectors from Pinecone.
+    
+    Args:
+        text: Text to find similar vectors for
+        top_k: Number of results to return
+        min_score: Minimum similarity score (0.0 to 1.0). Lower values = more lenient matching.
+                   For cosine similarity, scores typically range from -1 to 1, but Pinecone normalizes to 0-1.
+    """
     index = _ensure_index()
     embeddings = embed_texts([text])
     if not embeddings:
         return []
 
     result = index.query(vector=embeddings[0], top_k=top_k, include_metadata=True)
-    return getattr(result, "matches", [])
+    matches = getattr(result, "matches", [])
+    
+    # Filter by minimum score if specified
+    if min_score > 0.0:
+        filtered_matches = []
+        for match in matches:
+            score = getattr(match, "score", 0.0)
+            # Pinecone cosine similarity scores are typically normalized to 0-1 range
+            # Adjust threshold based on your needs (0.5-0.7 is usually good)
+            if score >= min_score:
+                filtered_matches.append(match)
+        return filtered_matches
+    
+    return matches
 
 
 def delete_by_path(path: str) -> None:

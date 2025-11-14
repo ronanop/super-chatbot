@@ -37,6 +37,7 @@ const initialMessages = [
 const storageKeys = {
   session: "cachedigitech_session_id",
   info: "cachedigitech_info_submitted",
+  messages: "cachedigitech_messages", // Store chat history
 };
 
 function classNames(...classes) {
@@ -348,7 +349,24 @@ function MessageBubble({ role, content, settings = defaultSettings, isTyping = f
 
 export default function ChatWidget() {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState(initialMessages);
+  // Load messages from localStorage on mount, fallback to initialMessages
+  const [messages, setMessages] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const storedMessages = localStorage.getItem(storageKeys.messages);
+        if (storedMessages) {
+          const parsed = JSON.parse(storedMessages);
+          // Only restore if we have messages (not just welcome)
+          if (parsed && Array.isArray(parsed) && parsed.length > 1) {
+            return parsed;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load messages from localStorage:', e);
+      }
+    }
+    return initialMessages;
+  });
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -373,6 +391,7 @@ export default function ChatWidget() {
   const typewriterIntervalRef = useRef(null);
   const recognitionRef = useRef(null);
   const initializationRef = useRef(false); // Prevent multiple initializations
+  const inputRef = useRef(null); // Ref for input field to auto-focus
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -690,11 +709,16 @@ export default function ChatWidget() {
     // Debug: Log API URL being used
     console.log("ChatWidget API Base URL:", apiBaseUrl);
     
-    const storedSession = sessionStorage.getItem(storageKeys.session);
+    // Try sessionStorage first (current session), then localStorage (persistent)
+    const storedSession = sessionStorage.getItem(storageKeys.session) || 
+                          localStorage.getItem(storageKeys.session);
     if (storedSession) {
       setSessionId(Number(storedSession));
     }
-    const storedInfo = sessionStorage.getItem(storageKeys.info);
+    
+    // Check both sessionStorage and localStorage for form submission status
+    const storedInfo = sessionStorage.getItem(storageKeys.info) || 
+                       localStorage.getItem(storageKeys.info);
     if (storedInfo === "1") {
       setInfoSubmitted(true);
       setShowInfoForm(false);
@@ -704,12 +728,30 @@ export default function ChatWidget() {
   useEffect(() => {
     if (sessionId) {
       sessionStorage.setItem(storageKeys.session, String(sessionId));
+      // Also save to localStorage for persistence across browser sessions
+      localStorage.setItem(storageKeys.session, String(sessionId));
     }
   }, [sessionId]);
+  
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window !== 'undefined' && messages.length > 0) {
+      try {
+        // Don't save if only welcome message (allow fresh start)
+        if (messages.length > 1 || messages[0].id !== 'welcome') {
+          localStorage.setItem(storageKeys.messages, JSON.stringify(messages));
+        }
+      } catch (e) {
+        console.warn('Failed to save messages to localStorage:', e);
+      }
+    }
+  }, [messages]);
 
   useEffect(() => {
     if (infoSubmitted) {
       sessionStorage.setItem(storageKeys.info, "1");
+      // Also save to localStorage for persistence across browser sessions
+      localStorage.setItem(storageKeys.info, "1");
     }
   }, [infoSubmitted]);
 
@@ -843,6 +885,13 @@ export default function ChatWidget() {
             return updatedMessages;
           });
           setIsLoading(false);
+          
+          // Auto-focus input field after response completes
+          setTimeout(() => {
+            if (inputRef.current && !showInfoForm) {
+              inputRef.current.focus();
+            }
+          }, 100);
         }
       }, 30); // 30ms per word (adjustable for speed - lower = faster)
 
@@ -856,6 +905,13 @@ export default function ChatWidget() {
       setError(err instanceof Error ? err.message : "Unknown error. Please try again.");
       setMessages((prev) => prev.filter((message) => message.id !== pendingId && message.id !== assistantMessageId));
       setIsLoading(false);
+      
+      // Auto-focus input field after error
+      setTimeout(() => {
+        if (inputRef.current && !showInfoForm) {
+          inputRef.current.focus();
+        }
+      }, 100);
     }
   };
 
@@ -1163,6 +1219,7 @@ export default function ChatWidget() {
           >
             <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
               <input
+                ref={inputRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder={isRecording ? "Listening..." : "Type your message..."}

@@ -131,6 +131,49 @@
   </form>
 </div>
 
+<!-- Auto-Training Section -->
+<div class="card" style="margin-top:24px;">
+  <h2>Auto-Training</h2>
+  <p class="muted">The chatbot automatically learns from conversations and adds new information to the knowledge base.</p>
+  
+  <div style="margin-top:24px; padding:16px; background:#f1f5f9; border-radius:12px; border-left:4px solid #4338ca;">
+    <h3 style="margin-top:0; color:#4338ca; margin-bottom:12px;">🤖 How Auto-Training Works</h3>
+    <ul style="margin:0; padding-left:20px; color:#475569;">
+      <li>After each successful conversation (where knowledge base context was found), the chatbot analyzes the Q&A</li>
+      <li>Uses AI to extract factual, useful information from the conversation</li>
+      <li>Automatically adds extracted knowledge to the knowledge base</li>
+      <li>Future users asking similar questions will benefit from this learned information</li>
+      <li>Runs in the background - doesn't slow down responses</li>
+    </ul>
+  </div>
+  
+  <div style="margin-top:24px;">
+    <h3 style="margin-bottom:16px; color:#4338ca;">Manual Batch Training</h3>
+    <p class="muted" style="margin-bottom:16px;">
+      Manually trigger batch training to process recent conversations and add them to the knowledge base.
+    </p>
+    
+    <form method="post" action="/admin/settings/auto-train" style="margin-top:16px;">
+      <button class="btn btn-primary" type="submit" style="padding:12px 24px; font-size:15px;">
+        🚀 Trigger Batch Auto-Training (Last 7 Days)
+      </button>
+    </form>
+    
+    <p class="muted" style="margin-top:12px; font-size:0.9rem;">
+      This will process conversations from the last 7 days and add useful information to the knowledge base.
+      Check server logs to see progress.
+    </p>
+  </div>
+  
+  <div style="margin-top:24px; padding:16px; background:rgba(245, 158, 11, 0.1); border-radius:12px; border-left:4px solid #f59e0b;">
+    <p style="margin:0; font-weight:600; color:#92400e; margin-bottom:8px;">⚙️ Configuration</p>
+    <p style="margin:0; color:#92400e; font-size:0.9rem;">
+      Auto-training is controlled by the <code>ENABLE_AUTO_TRAINING</code> environment variable.
+      Set it to <code>false</code> in your <code>.env</code> file to disable auto-training.
+    </p>
+  </div>
+</div>
+
 <script>
   function toggleManualUrl() {
     const checkbox = document.getElementById('auto_detect_api_url');

@@ -1659,6 +1659,32 @@ async def save_custom_instructions(
     )
 
 
+@router.post("/settings/auto-train")
+async def trigger_auto_training(
+    background_tasks: BackgroundTasks,
+    _: str = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Manually trigger batch auto-training from recent conversations."""
+    try:
+        from app.services.auto_training import batch_train_from_recent_conversations
+        
+        # Run batch training in background (function creates its own DB session)
+        background_tasks.add_task(batch_train_from_recent_conversations, days_back=7)
+        
+        logger.info("Batch auto-training triggered")
+        return RedirectResponse(
+            url="/admin/settings?status=success&message=" + urllib.parse.quote_plus("Auto-training started in background. Check logs for progress."),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    except Exception as e:
+        logger.error(f"Error triggering auto-training: {e}")
+        return RedirectResponse(
+            url="/admin/settings?status=error&message=" + urllib.parse.quote_plus(f"Failed to start auto-training: {str(e)}"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+
 @router.get("/api/config")
 async def get_api_config(request: Request, db: Session = Depends(get_db)) -> dict:
     """Get API configuration for frontend (public endpoint, no auth required)."""
