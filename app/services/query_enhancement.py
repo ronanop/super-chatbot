@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import List
 
-from app.services.gemini import get_generation_model
+from app.services.llm import generate_content
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +73,12 @@ def expand_query(query: str, use_llm: bool = True) -> List[str]:
     # Use LLM expansion for very short queries if enabled (adds latency but better results)
     if use_llm and len(words) <= 3 and key_terms:
         try:
-            model = get_generation_model()
-            
-            # Quick, focused expansion prompt
-            expansion_prompt = f"""Generate 3 alternative search queries for finding information about "{key_terms[0]}" in a knowledge base. 
+            # Get database session for provider selection
+            from app.db.session import SessionLocal
+            db = SessionLocal()
+            try:
+                # Quick, focused expansion prompt
+                expansion_prompt = f"""Generate 3 alternative search queries for finding information about "{key_terms[0]}" in a knowledge base. 
 Return only the queries, one per line, no numbering. Make them specific and varied.
 
 Example for "shraddha":
@@ -86,15 +88,17 @@ shraddha role and position
 
 Now for "{key_terms[0]}":"""
 
-            result = model.generate_content(expansion_prompt)
-            expanded_text = getattr(result, "text", "").strip()
-            
-            if expanded_text:
-                llm_variations = [line.strip() for line in expanded_text.split("\n") if line.strip() and len(line.strip()) > 5]
-                # Remove any that are too similar to what we already have
-                for var in llm_variations[:3]:
-                    if var.lower() not in [e.lower() for e in expansions]:
-                        expansions.append(var)
+                result = generate_content(expansion_prompt, db=db)
+                expanded_text = result.text.strip()
+                
+                if expanded_text:
+                    llm_variations = [line.strip() for line in expanded_text.split("\n") if line.strip() and len(line.strip()) > 5]
+                    # Remove any that are too similar to what we already have
+                    for var in llm_variations[:3]:
+                        if var.lower() not in [e.lower() for e in expansions]:
+                            expansions.append(var)
+            finally:
+                db.close()
         except Exception as e:
             logger.debug(f"LLM query expansion failed: {e}, using rule-based only")
     

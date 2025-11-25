@@ -107,7 +107,7 @@
       <textarea 
         id="custom_instructions" 
         name="custom_instructions" 
-        placeholder="You are Cache Digitech's virtual assistant. Provide concise, precise answers in Cache Digitech's tone. Prioritize knowledge base context; if nothing relevant is found, draw on Gemini's general knowledge and frame the response as Cache Digitech's solution. Never offer long essays; stay to the point, highlight next steps, and offer to connect with a human when appropriate."
+        placeholder="You are AskCache.ai's virtual assistant. Provide concise, precise answers in AskCache.ai's tone. Prioritize knowledge base context; if nothing relevant is found, draw on OpenAI's general knowledge and frame the response as AskCache.ai's solution. Never offer long essays; stay to the point, highlight next steps, and offer to connect with a human when appropriate."
         style="min-height:250px; font-family: 'Courier New', monospace; font-size:13px;"
       >{{ settings.custom_instructions or '' }}</textarea>
       
@@ -121,7 +121,7 @@
       
       <div style="margin-top:16px; padding:16px; background:#f1f5f9; border-radius:12px; border-left:4px solid #4338ca;">
         <p style="margin:0; font-weight:600; color:#1e293b; margin-bottom:8px;">📝 Default Instructions (if custom is empty):</p>
-        <pre style="margin:0; padding:12px; background:#fff; border-radius:8px; font-size:12px; overflow-x:auto; color:#475569; white-space:pre-wrap;">You are Cache Digitech's virtual assistant. Provide concise, precise answers in Cache Digitech's tone. Prioritize knowledge base context; if nothing relevant is found, draw on Gemini's general knowledge and frame the response as Cache Digitech's solution. Never offer long essays; stay to the point, highlight next steps, and offer to connect with a human when appropriate.</pre>
+        <pre style="margin:0; padding:12px; background:#fff; border-radius:8px; font-size:12px; overflow-x:auto; color:#475569; white-space:pre-wrap;">You are AskCache.ai's virtual assistant. Provide concise, precise answers in AskCache.ai's tone. Prioritize knowledge base context; if nothing relevant is found, draw on OpenAI's general knowledge and frame the response as AskCache.ai's solution. Never offer long essays; stay to the point, highlight next steps, and offer to connect with a human when appropriate.</pre>
       </div>
     </div>
 
@@ -129,6 +129,32 @@
       Save Custom Instructions
     </button>
   </form>
+</div>
+
+<!-- LLM Provider Info Section -->
+<div class="card" style="margin-top:24px;">
+  <h2>LLM Provider</h2>
+  <p class="muted">This application uses OpenAI for generating chatbot responses. Make sure <code>OPENAI_API_KEY</code> is set in your <code>.env</code> file.</p>
+  
+  <div style="margin-top:24px; padding:16px; background:#f1f5f9; border-radius:12px; border-left:4px solid #4338ca;">
+    <p style="margin:0; font-weight:600; color:#1e293b; margin-bottom:8px;">⚡ OpenAI Configuration</p>
+    <ul style="margin:0; padding-left:20px; color:#475569;">
+      <li>Uses OpenAI's GPT models (default: gpt-4o-mini)</li>
+      <li>Requires <code>OPENAI_API_KEY</code> in <code>.env</code> file</li>
+      <li><strong>✨ Includes GPT-4 Vision:</strong> Users can upload images for analysis</li>
+      <li><strong>✨ Includes DALL-E image generation:</strong> Users can ask for images (e.g., "generate an image of a sunset")</li>
+      <li>Uses the same knowledge base and context for all responses</li>
+    </ul>
+  </div>
+  
+  <div style="margin-top:16px; padding:16px; background:rgba(245, 158, 11, 0.1); border-radius:12px; border-left:4px solid #f59e0b;">
+    <p style="margin:0; font-weight:600; color:#92400e; margin-bottom:8px;">⚙️ Environment Variables:</p>
+    <ul style="margin:0; padding-left:20px; color:#92400e; font-size:0.9rem;">
+      <li><strong>OPENAI_API_KEY</strong> (required): Your OpenAI API key</li>
+      <li><strong>OPENAI_MODEL</strong> (optional): Override default model (default: gpt-4o-mini)</li>
+      <li><strong>OPENAI_VISION_MODEL</strong> (optional): Override vision model (default: gpt-4o)</li>
+    </ul>
+  </div>
 </div>
 
 <!-- Auto-Training Section -->
@@ -174,7 +200,7 @@
   </div>
 </div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce if request.state.csp_nonce else '' }}">
   function toggleManualUrl() {
     const checkbox = document.getElementById('auto_detect_api_url');
     const manualSection = document.getElementById('manual-url-section');

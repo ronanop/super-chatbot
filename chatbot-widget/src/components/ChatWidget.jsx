@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { API_BASE_URL as DEFAULT_API_BASE_URL, fetchApiConfig } from "../config";
+import LoginForm, { storageKeys as authStorageKeys } from "./LoginForm";
+import ChatSidebar from "./ChatSidebar";
+import UserProfile from "./UserProfile";
 
 const BOT_AVATAR = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/1f916.svg";
 const USER_AVATAR = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/1f464.svg";
 
 // Default settings
 const defaultSettings = {
-  bot_name: "Cache Digitech Virtual Assistant",
+  bot_name: "AskCache.ai Assistant",
   bot_icon_url: null,
   header_image_url: null,
-  welcome_message: "Hi! I'm the Cache Digitech assistant. Ask me anything about our services, projects, or how we can help your business.",
+  welcome_message: "Hi! I'm AskCache.ai assistant. Ask me anything and I'll help you find the information you need.",
   primary_color: "#4338ca",
   secondary_color: "#6366f1",
   background_color: "#ffffff",
@@ -26,19 +29,40 @@ const defaultSettings = {
   custom_css: null,
 };
 
-const initialMessages = [
-  {
+const storageKeys = {
+  session: "askcache_session_id",
+  info: "askcache_info_submitted",
+  messages: "askcache_messages", // Store chat history
+  uiSettings: "askcache_ui_settings", // Store UI settings for instant load
+};
+
+// Function to get initial messages with welcome message from localStorage if available
+const getInitialMessages = () => {
+  if (typeof window !== 'undefined') {
+    try {
+      const storedSettings = localStorage.getItem(storageKeys.uiSettings);
+      if (storedSettings) {
+        const parsed = JSON.parse(storedSettings);
+        if (parsed.welcome_message) {
+          return [{
+            id: "welcome",
+            role: "assistant",
+            content: parsed.welcome_message,
+          }];
+        }
+      }
+    } catch (e) {
+      // Ignore errors, use default
+    }
+  }
+  return [{
     id: "welcome",
     role: "assistant",
     content: defaultSettings.welcome_message,
-  },
-];
-
-const storageKeys = {
-  session: "cachedigitech_session_id",
-  info: "cachedigitech_info_submitted",
-  messages: "cachedigitech_messages", // Store chat history
+  }];
 };
+
+const initialMessages = getInitialMessages();
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -227,8 +251,35 @@ function formatTextWithBold(text) {
   return parts;
 }
 
-function MessageBubble({ role, content, settings = defaultSettings, isTyping = false }) {
+function MessageBubble({ role, content, settings = defaultSettings, isTyping = false, imageUrl = null, userImageUrl = null }) {
+  const [copied, setCopied] = useState(false);
   const isUser = role === "user";
+
+  const handleCopy = async () => {
+    try {
+      // Copy plain text content (without formatting)
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = content;
+      textArea.style.position = 'fixed';
+      textArea.style.opacity = '0';
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (fallbackErr) {
+        console.error('Fallback copy failed:', fallbackErr);
+      }
+      document.body.removeChild(textArea);
+    }
+  };
   
   // Format content: split by lines, then format each line
   // Wrap in try-catch to prevent crashes
@@ -279,22 +330,35 @@ function MessageBubble({ role, content, settings = defaultSettings, isTyping = f
   
   return (
     <div 
-      className={classNames("flex gap-3 animate-fade-in-up", isUser ? "justify-end" : "justify-start")}
+      className={classNames("flex gap-4 animate-fade-in-up w-full", isUser ? "justify-end" : "justify-start")}
     >
-      <div className={classNames("flex items-start gap-3 max-w-[80%]", isUser && "flex-row-reverse")}> 
+      {!isUser && (
         <img
-          src={isUser ? USER_AVATAR : (settings.bot_icon_url || BOT_AVATAR)}
-          alt={isUser ? "User" : "Assistant"}
-          className="h-8 w-8 rounded-full bg-white/60 p-1 shadow flex-shrink-0"
+          src={settings.bot_icon_url || BOT_AVATAR}
+          alt="Assistant"
+          className="h-8 w-8 rounded-full flex-shrink-0"
         />
+      )}
+      <div className={classNames("flex flex-col", isUser ? "items-end max-w-[85%]" : "items-start max-w-[85%]")}>
+        {isUser && (
+          <img
+            src={USER_AVATAR}
+            alt="User"
+            className="h-8 w-8 rounded-full flex-shrink-0 mb-2"
+          />
+        )}
         <div
-          className="rounded-2xl px-4 py-2 text-sm leading-relaxed break-words"
+          className={classNames(
+            "rounded-2xl px-4 py-3 text-base leading-relaxed break-words",
+            isUser ? "rounded-br-sm" : "rounded-bl-sm"
+          )}
           style={{
             backgroundColor: isUser ? settings.user_message_bg : settings.bot_message_bg,
             color: isUser ? settings.user_message_text : settings.bot_message_text,
-            border: isUser ? 'none' : (settings.bot_message_bg === '#ffffff' ? '1px solid #e2e8f0' : 'none'),
+            border: isUser ? 'none' : '1px solid #e5e7eb',
             wordWrap: 'break-word',
             overflowWrap: 'break-word',
+            maxWidth: '100%',
           }}
         >
           {formattedLines.map(({ lineIdx, parts }) => (
@@ -342,12 +406,114 @@ function MessageBubble({ role, content, settings = defaultSettings, isTyping = f
             </span>
           )}
         </div>
+        {/* Display uploaded image in user message */}
+        {userImageUrl && isUser && (
+          <div className="mt-3 rounded-xl overflow-hidden" style={{ maxWidth: '100%' }}>
+            <img
+              src={userImageUrl}
+              alt="Uploaded image"
+              className="w-full h-auto rounded-xl"
+              style={{ maxWidth: '512px', maxHeight: '512px', objectFit: 'contain' }}
+              onError={(e) => {
+                console.error('Failed to load image:', userImageUrl);
+                e.target.style.display = 'none';
+              }}
+            />
+          </div>
+        )}
+        
+        {/* Display generated image if present */}
+        {imageUrl && !isUser && (
+          <div className="mt-3 rounded-xl overflow-hidden" style={{ maxWidth: '100%' }}>
+            <img
+              src={imageUrl}
+              alt="Generated image"
+              className="w-full h-auto rounded-xl"
+              style={{ maxWidth: '512px', maxHeight: '512px', objectFit: 'contain' }}
+              onError={(e) => {
+                console.error('Failed to load image:', imageUrl);
+                e.target.style.display = 'none';
+              }}
+            />
+          </div>
+        )}
+        {/* Copy button for assistant messages */}
+        {!isUser && !isTyping && (
+          <button
+            onClick={handleCopy}
+            className="mt-2 flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 transition-colors rounded-md hover:bg-gray-100"
+            title={copied ? "Copied!" : "Copy response"}
+            style={{
+              opacity: copied ? 0.7 : 1,
+            }}
+          >
+            {copied ? (
+              <>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span>Copied!</span>
+              </>
+            ) : (
+              <>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <span>Copy</span>
+              </>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
 export default function ChatWidget() {
+  // Check authentication on mount
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem(authStorageKeys.authToken);
+      return !!token;
+    }
+    return false;
+  });
+
+  // Sidebar state: open on desktop/tablet, closed on mobile
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    // Check if we're on desktop/tablet (md breakpoint = 768px)
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 768;
+    }
+    return false;
+  });
+
+  // Handle window resize to adjust sidebar state
+  useEffect(() => {
+    const handleResize = () => {
+      // On desktop/tablet, sidebar should always be open
+      if (window.innerWidth >= 768) {
+        setSidebarOpen(true);
+      }
+      // On mobile, keep current state (don't auto-open)
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   // Load messages from localStorage on mount, fallback to initialMessages
   const [messages, setMessages] = useState(() => {
@@ -371,10 +537,24 @@ export default function ChatWidget() {
   const [sessionId, setSessionId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [showInfoForm, setShowInfoForm] = useState(false);
-  const [infoSubmitted, setInfoSubmitted] = useState(false);
-  const [formData, setFormData] = useState({ name: "", email: "", phone: "" });
-  const [uiSettings, setUiSettings] = useState(defaultSettings);
+  const [uploadedImage, setUploadedImage] = useState(null); // Store uploaded image URL
+  const [uploadingImage, setUploadingImage] = useState(false); // Track image upload status
+  // Load UI settings from localStorage immediately to prevent flash of default theme
+  const [uiSettings, setUiSettings] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const storedSettings = localStorage.getItem(storageKeys.uiSettings);
+        if (storedSettings) {
+          const parsed = JSON.parse(storedSettings);
+          // Merge with defaults to ensure all properties exist
+          return { ...defaultSettings, ...parsed };
+        }
+      } catch (e) {
+        console.warn('Failed to load UI settings from localStorage:', e);
+      }
+    }
+    return defaultSettings;
+  });
   // Use embed-provided URL if available, otherwise use default
   const [apiBaseUrl, setApiBaseUrl] = useState(
     typeof window !== 'undefined' && window.WIDGET_API_BASE_URL 
@@ -392,6 +572,12 @@ export default function ChatWidget() {
   const recognitionRef = useRef(null);
   const initializationRef = useRef(false); // Prevent multiple initializations
   const inputRef = useRef(null); // Ref for input field to auto-focus
+  const userScrolledUpRef = useRef(false); // Track if user manually scrolled up
+  const autoScrollEnabledRef = useRef(true); // Track if auto-scroll should be enabled
+  const fileInputRef = useRef(null); // Ref for hidden image file input
+  const documentInputRef = useRef(null); // Ref for hidden document file input
+  const [uploadedDocuments, setUploadedDocuments] = useState([]); // Store uploaded documents
+  const [uploadingDocument, setUploadingDocument] = useState(false); // Track document upload status
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -492,7 +678,7 @@ export default function ChatWidget() {
       setApiBaseUrl(resolvedApiUrl);
       console.log("ChatWidget API Base URL:", resolvedApiUrl);
       
-      // Then fetch UI settings using the resolved URL
+      // Then fetch UI settings using the resolved URL (with retry and URL rediscovery)
       const fetchSettings = async (apiUrl, retryCount = 0) => {
         try {
           // Always use cache-busting to ensure fresh settings
@@ -544,7 +730,15 @@ export default function ChatWidget() {
             // Update timestamp reference
             lastSettingsTimestampRef.current = currentTimestamp;
             
-            setUiSettings({ ...defaultSettings, ...settings });
+            const mergedSettings = { ...defaultSettings, ...settings };
+            setUiSettings(mergedSettings);
+            
+            // Save to localStorage for instant load on next page load
+            try {
+              localStorage.setItem(storageKeys.uiSettings, JSON.stringify(mergedSettings));
+            } catch (e) {
+              console.warn('Failed to save UI settings to localStorage:', e);
+            }
             // Update welcome message if custom
             if (settings.welcome_message) {
               setMessages((prev) => {
@@ -570,8 +764,21 @@ export default function ChatWidget() {
           console.error("Failed to fetch UI settings:", err);
           
           // Retry once if it's a network error/timeout and we haven't retried yet
-          if (retryCount === 0 && (err.name === 'TypeError' || err.name === 'TimeoutError' || err.name === 'AbortError')) {
-            console.log('Retrying settings fetch after error...');
+          if (retryCount === 0 && (err.name === 'TypeError' || err.name === 'TimeoutError' || err.name === 'AbortError' || err.message?.includes('Failed to fetch'))) {
+            console.log('Retrying settings fetch with URL rediscovery...');
+            try {
+              // Try to rediscover backend URL
+              const newUrl = await fetchApiConfig(true);
+              if (newUrl && newUrl !== apiUrl) {
+                console.log('Discovered new backend URL:', newUrl);
+                setApiBaseUrl(newUrl);
+                setTimeout(() => fetchSettings(newUrl, 1), 500);
+                return;
+              }
+            } catch (rediscoverErr) {
+              console.error('Failed to rediscover backend:', rediscoverErr);
+            }
+            // Fallback: retry with same URL
             setTimeout(() => fetchSettings(apiUrl, 1), 1000);
           } else {
             // Use defaults on error, but still mark as loaded
@@ -626,7 +833,15 @@ export default function ChatWidget() {
               
               // Update settings
               lastSettingsTimestampRef.current = currentTimestamp;
-              setUiSettings({ ...defaultSettings, ...settings });
+              const mergedSettings = { ...defaultSettings, ...settings };
+              setUiSettings(mergedSettings);
+              
+              // Save to localStorage for instant load on next page load
+              try {
+                localStorage.setItem(storageKeys.uiSettings, JSON.stringify(mergedSettings));
+              } catch (e) {
+                console.warn('Failed to save UI settings to localStorage:', e);
+              }
               
               // Update welcome message if it changed
               if (settings.welcome_message) {
@@ -672,14 +887,44 @@ export default function ChatWidget() {
     }
   }, [uiSettings.custom_css]);
 
-  // Smooth scroll to bottom when new messages arrive or typing indicator appears
+  // Check if user is near bottom of chat (within 100px)
+  const isNearBottom = () => {
+    if (!chatBodyRef.current) return true;
+    const { scrollTop, scrollHeight, clientHeight } = chatBodyRef.current;
+    return scrollHeight - scrollTop - clientHeight < 100;
+  };
+
+  // Handle scroll events to detect manual scrolling
   useEffect(() => {
-    if (chatBodyRef.current) {
+    const chatBody = chatBodyRef.current;
+    if (!chatBody) return;
+
+    const handleScroll = () => {
+      // If user scrolls up, disable auto-scroll temporarily
+      if (!isNearBottom()) {
+        userScrolledUpRef.current = true;
+        autoScrollEnabledRef.current = false;
+      } else {
+        // User scrolled back to bottom, re-enable auto-scroll
+        userScrolledUpRef.current = false;
+        autoScrollEnabledRef.current = true;
+      }
+    };
+
+    chatBody.addEventListener('scroll', handleScroll);
+    return () => chatBody.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Smooth scroll to bottom when new messages arrive (only if user hasn't scrolled up)
+  useEffect(() => {
+    if (chatBodyRef.current && autoScrollEnabledRef.current) {
       const scrollToBottom = () => {
-        chatBodyRef.current?.scrollTo({
-          top: chatBodyRef.current.scrollHeight,
-          behavior: 'smooth',
-        });
+        if (chatBodyRef.current && autoScrollEnabledRef.current) {
+          chatBodyRef.current.scrollTo({
+            top: chatBodyRef.current.scrollHeight,
+            behavior: 'smooth',
+          });
+        }
       };
       
       // Small delay to ensure DOM is updated
@@ -688,18 +933,18 @@ export default function ChatWidget() {
     }
   }, [messages, isLoading]);
 
-  // Auto-scroll during typewriter effect
+  // Auto-scroll during typewriter effect (only if user hasn't scrolled up)
   useEffect(() => {
     const hasTypingMessage = messages.some(msg => msg.isTyping);
-    if (hasTypingMessage && chatBodyRef.current) {
+    if (hasTypingMessage && chatBodyRef.current && autoScrollEnabledRef.current) {
       const intervalId = setInterval(() => {
-        if (chatBodyRef.current) {
+        if (chatBodyRef.current && autoScrollEnabledRef.current && isNearBottom()) {
           chatBodyRef.current.scrollTo({
             top: chatBodyRef.current.scrollHeight,
             behavior: 'smooth',
           });
         }
-      }, 100); // Scroll every 100ms during typing
+      }, 200); // Scroll every 200ms during typing (less aggressive)
       
       return () => clearInterval(intervalId);
     }
@@ -716,13 +961,6 @@ export default function ChatWidget() {
       setSessionId(Number(storedSession));
     }
     
-    // Check both sessionStorage and localStorage for form submission status
-    const storedInfo = sessionStorage.getItem(storageKeys.info) || 
-                       localStorage.getItem(storageKeys.info);
-    if (storedInfo === "1") {
-      setInfoSubmitted(true);
-      setShowInfoForm(false);
-    }
   }, []);
 
   useEffect(() => {
@@ -748,19 +986,11 @@ export default function ChatWidget() {
   }, [messages]);
 
   useEffect(() => {
-    if (infoSubmitted) {
-      sessionStorage.setItem(storageKeys.info, "1");
-      // Also save to localStorage for persistence across browser sessions
-      localStorage.setItem(storageKeys.info, "1");
-    }
-  }, [infoSubmitted]);
-
-  useEffect(() => {
     const body = chatBodyRef.current;
-    if (body) {
+    if (body && autoScrollEnabledRef.current && isNearBottom()) {
       body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
     }
-  }, [messages, showInfoForm]);
+  }, [messages]);
 
   // Auto-submit when voice transcript is ready
   useEffect(() => {
@@ -788,13 +1018,19 @@ export default function ChatWidget() {
   const handleSendMessage = async (event) => {
     event?.preventDefault();
     const trimmed = input.trim();
-    if (!trimmed || isLoading || (showInfoForm && !infoSubmitted)) return; // Block sending if form is shown
+    if ((!trimmed && !uploadedImage && uploadedDocuments.length === 0) || isLoading) return; // Allow sending with image or documents
 
     const pendingId = createMessageId();
     const assistantMessageId = createMessageId();
-    const userMessage = { id: pendingId, role: "user", content: trimmed };
+    const userMessage = { 
+      id: pendingId, 
+      role: "user", 
+      content: trimmed || (uploadedImage ? "Analyze this image" : "") || (uploadedDocuments.length > 0 ? "Analyze these documents" : ""),
+      imageUrl: uploadedImage ? `${apiBaseUrl}${uploadedImage}` : null // Include image in message
+    };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
+    setUploadedImage(null); // Clear uploaded image after sending
     setIsLoading(true);
     setError(null);
 
@@ -810,25 +1046,152 @@ export default function ChatWidget() {
     ]);
 
     try {
-      const response = await fetch(`${apiBaseUrl}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, session_id: sessionId }),
-      }).catch((err) => {
-        // Network error - backend not reachable
-        console.error("Network error:", err);
-        console.error("API URL:", `${apiBaseUrl}/chat`);
-        throw new Error(`Cannot connect to backend at ${apiBaseUrl}. Make sure the server is running.`);
-      });
+      // Get auth token
+      const authToken = localStorage.getItem(authStorageKeys.authToken);
+      if (!authToken) {
+        setIsAuthenticated(false);
+        setError("Please login to continue.");
+        setIsLoading(false);
+        return;
+      }
+
+      // Try to fetch with automatic retry and URL rediscovery on failure
+      let response;
+      let finalApiUrl = apiBaseUrl;
+      let retryCount = 0;
+      const maxRetries = 1; // Retry once with URL rediscovery
+      
+      while (retryCount <= maxRetries) {
+        try {
+          // Create abort controller for timeout (increased timeout for LLM responses)
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout (LLM can take time)
+          
+          response = await fetch(`${finalApiUrl}/chat`, {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${authToken}`,
+            },
+            body: JSON.stringify({ 
+              message: trimmed || (uploadedImage ? "Analyze this image" : "") || (uploadedDocuments.length > 0 ? "Analyze these documents" : ""), 
+              session_id: sessionId,
+              image_url: uploadedImage ? `${finalApiUrl}${uploadedImage}` : null, // Include image URL if uploaded
+              document_ids: uploadedDocuments.length > 0 ? uploadedDocuments.map(doc => doc.id) : null // Include document IDs if uploaded
+            }),
+            signal: controller.signal,
+          });
+          
+          clearTimeout(timeoutId);
+          
+          // If successful, break out of retry loop
+          if (response.ok || response.status !== 0) {
+            // Update API URL if we discovered a new one
+            if (finalApiUrl !== apiBaseUrl) {
+              setApiBaseUrl(finalApiUrl);
+              console.log("✅ Updated API URL to:", finalApiUrl);
+            }
+            break;
+          }
+        } catch (err) {
+          // Network error - try to rediscover backend URL
+          console.warn(`Connection attempt ${retryCount + 1} failed:`, err.message);
+          
+          if (retryCount < maxRetries) {
+            // Try to rediscover the backend URL
+            console.log("🔄 Rediscovering backend URL...");
+            try {
+              const newUrl = await fetchApiConfig(true); // Force rediscovery
+              if (newUrl && newUrl !== finalApiUrl) {
+                finalApiUrl = newUrl;
+                console.log("🔄 Trying new backend URL:", finalApiUrl);
+                retryCount++;
+                continue; // Retry with new URL
+              }
+            } catch (rediscoverErr) {
+              console.error("Failed to rediscover backend:", rediscoverErr);
+            }
+          }
+          
+          // If we've exhausted retries, throw error
+          console.error("Network error:", err);
+          console.error("Error details:", {
+            name: err.name,
+            message: err.message,
+            stack: err.stack,
+            url: `${finalApiUrl}/chat`
+          });
+          
+          // Provide helpful error message
+          let errorMessage = `Cannot connect to backend. `;
+          if (err.name === 'AbortError' || err.message.includes('timeout') || err.message.includes('aborted')) {
+            // Check if it's a timeout or connection issue
+            if (err.message.includes('aborted without reason') || err.message.includes('signal is aborted')) {
+              errorMessage += "Request timed out. The backend may be processing your request - please wait a moment and try again.";
+            } else {
+              errorMessage += "The server is not responding. Please check if the backend is running.";
+            }
+          } else if (err.message.includes('Failed to fetch') || err.message.includes('ERR_CONNECTION') || err.message.includes('ERR_NETWORK')) {
+            errorMessage += "Make sure the backend server is running. Start it with: python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload";
+          } else if (err.message.includes('CORS') || err.message.includes('Access-Control')) {
+            errorMessage += "CORS error detected. Please check backend CORS configuration.";
+          } else {
+            errorMessage += err.message || "Network error occurred.";
+          }
+          
+          throw new Error(errorMessage);
+        }
+        
+        retryCount++;
+      }
 
       if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        throw new Error(detail.detail || `Server error: ${response.status} ${response.statusText}`);
+        let errorDetail = {};
+        try {
+          const text = await response.text();
+          if (text) {
+            errorDetail = JSON.parse(text);
+          }
+        } catch (e) {
+          // Response is not JSON, use status text
+          errorDetail = { detail: response.statusText };
+        }
+        
+        console.error("Backend error response:", {
+          status: response.status,
+          statusText: response.statusText,
+          detail: errorDetail,
+          url: `${finalApiUrl}/chat`
+        });
+        
+        // Handle 401 Unauthorized - token expired or invalid
+        if (response.status === 401) {
+          handleLogout();
+          throw new Error("Session expired. Please login again.");
+        }
+        
+        // Handle 422 Validation Error
+        if (response.status === 422) {
+          throw new Error(errorDetail.detail || "Invalid request format. Please check your input.");
+        }
+        
+        // Handle 500 Server Error
+        if (response.status === 500) {
+          throw new Error(errorDetail.detail || "Server error occurred. Please try again later.");
+        }
+        
+        throw new Error(errorDetail.detail || `Server error: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
       setSessionId(data.session_id);
+      
+      // Clear uploaded documents after sending (they're now in the context)
+      setUploadedDocuments([]);
 
+      // Check if image was generated - if so, skip typewriter effect and show image immediately
+      const hasImage = data.image_url && data.image_url.trim();
+      
       // Typewriter effect: display words one by one
       const fullText = data.reply;
       const words = fullText.split(/(\s+)/); // Split by spaces but keep the spaces
@@ -838,6 +1201,27 @@ export default function ChatWidget() {
       // Clear any existing interval
       if (typewriterIntervalRef.current) {
         clearInterval(typewriterIntervalRef.current);
+      }
+
+      // If image is present, show message immediately without typewriter effect
+      if (hasImage) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, content: fullText, isTyping: false, imageUrl: data.image_url }
+              : msg
+          )
+        );
+        setIsLoading(false);
+        
+        
+        // Auto-focus input
+        setTimeout(() => {
+          if (inputRef.current) {
+            inputRef.current.focus();
+          }
+        }, 100);
+        return;
       }
 
       typewriterIntervalRef.current = setInterval(() => {
@@ -868,19 +1252,6 @@ export default function ChatWidget() {
                 : msg
             );
             
-            // Check user message count after updating
-            const userMessageCount = updatedMessages.filter(msg => msg.role === 'user').length;
-            if (userMessageCount >= 2 && !infoSubmitted && !showInfoForm) {
-              // Show form after 2nd message response completes
-              setTimeout(() => {
-                setShowInfoForm(true);
-              }, 100);
-            } else if (data.prompt_for_info && !infoSubmitted) {
-              // Fallback to backend prompt if configured
-              setTimeout(() => {
-                setShowInfoForm(true);
-              }, 100);
-            }
             
             return updatedMessages;
           });
@@ -888,7 +1259,7 @@ export default function ChatWidget() {
           
           // Auto-focus input field after response completes
           setTimeout(() => {
-            if (inputRef.current && !showInfoForm) {
+            if (inputRef.current) {
               inputRef.current.focus();
             }
           }, 100);
@@ -908,17 +1279,13 @@ export default function ChatWidget() {
       
       // Auto-focus input field after error
       setTimeout(() => {
-        if (inputRef.current && !showInfoForm) {
+        if (inputRef.current) {
           inputRef.current.focus();
         }
       }, 100);
     }
   };
 
-  const handleFormChange = (event) => {
-    const { name, value } = event.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
 
 
   const handleVoiceInput = () => {
@@ -961,10 +1328,12 @@ export default function ChatWidget() {
     }
   };
 
-  const handleInfoSubmit = async (event) => {
-    event.preventDefault();
-    if (!sessionId) {
-      setError("Please send a message first so we can link your details to a chat session.");
+
+  const handleClearChat = async () => {
+    if (isLoading) return; // Don't clear while loading
+    
+    // Confirm with user
+    if (!window.confirm("Are you sure you want to clear the chat and start a new conversation?")) {
       return;
     }
 
@@ -972,27 +1341,53 @@ export default function ChatWidget() {
     setError(null);
 
     try {
-      const response = await fetch(`${apiBaseUrl}/user-info`, {
+      // Call backend to clear chat
+      const authToken = localStorage.getItem(authStorageKeys.authToken);
+      const response = await fetch(`${apiBaseUrl}/chat/clear`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, ...formData }),
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ session_id: sessionId }),
       });
 
       if (!response.ok) {
         const detail = await response.json().catch(() => ({}));
-        throw new Error(detail.detail || "Couldn't save your details. Please try again.");
+        throw new Error(detail.detail || "Couldn't clear chat. Please try again.");
       }
 
-      setInfoSubmitted(true);
-      setShowInfoForm(false);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: createMessageId(),
-          role: "assistant",
-          content: "Thanks! I've saved your contact details. A team member can follow up if needed.",
-        },
-      ]);
+      const data = await response.json();
+      
+      // Reset to initial state
+      const initialMessages = getInitialMessages();
+      setMessages(initialMessages);
+      setSessionId(data.new_session_id || null);
+      setInput("");
+      
+      // Clear localStorage for messages
+      try {
+        localStorage.removeItem(storageKeys.messages);
+        // Keep session ID updated
+        if (data.new_session_id) {
+          localStorage.setItem(storageKeys.session, String(data.new_session_id));
+          sessionStorage.setItem(storageKeys.session, String(data.new_session_id));
+        }
+      } catch (e) {
+        console.warn('Failed to clear localStorage:', e);
+      }
+      
+      // Scroll to top
+      if (chatBodyRef.current) {
+        chatBodyRef.current.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      
+      // Auto-focus input
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 100);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error. Please try again.");
     } finally {
@@ -1027,77 +1422,326 @@ export default function ChatWidget() {
   const widgetWidth = widgetSizes[uiSettings.widget_size] || widgetSizes.medium;
   const positionClass = positionClasses[uiSettings.widget_position] || positionClasses["bottom-right"];
 
-  // Detect if running in iframe
-  const isInIframe = window.self !== window.top;
+  // Handle login success
+  const handleLoginSuccess = () => {
+    setIsAuthenticated(true);
+    // Clear old messages and start fresh
+    setMessages(initialMessages);
+    setSessionId(null);
+    setError(null);
+  };
 
-  // For iframe mode, always show the chat and use relative positioning
-  const containerClass = isInIframe 
-    ? "relative w-full h-full font-sans" 
-    : `fixed ${positionClass} z-50 font-sans`;
+  // Handle logout
+  const handleLogout = () => {
+    localStorage.removeItem(authStorageKeys.authToken);
+    localStorage.removeItem(authStorageKeys.userEmail);
+    localStorage.removeItem(authStorageKeys.userId);
+    localStorage.removeItem(storageKeys.messages);
+    localStorage.removeItem(storageKeys.session);
+    setIsAuthenticated(false);
+    setMessages(initialMessages);
+    setSessionId(null);
+  };
+
+  // Handle new chat creation
+  const handleNewChat = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const authToken = localStorage.getItem(authStorageKeys.authToken);
+      if (!authToken) {
+        setIsAuthenticated(false);
+        setError("Please login to continue.");
+        setIsLoading(false);
+        return;
+      }
+      
+      const response = await fetch(`${apiBaseUrl}/chat/new`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSessionId(data.session_id);
+        setMessages(initialMessages);
+        setError(null);
+        // Close sidebar on mobile after creating new chat
+        if (window.innerWidth < 768) {
+          setSidebarOpen(false);
+        }
+        
+        // Clear localStorage for new chat
+        try {
+          localStorage.setItem(storageKeys.messages, JSON.stringify(initialMessages));
+          localStorage.setItem(storageKeys.session, data.session_id.toString());
+        } catch (e) {
+          console.warn("Failed to save to localStorage:", e);
+        }
+      } else {
+        // Handle 401 Unauthorized - token expired or invalid
+        if (response.status === 401) {
+          handleLogout();
+          setError("Session expired. Please login again.");
+          return;
+        }
+        
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.detail || `Server error: ${response.status}`;
+        console.error("Failed to create new chat:", errorMessage, "Response:", response.status);
+        setError(`Failed to create new chat: ${errorMessage}`);
+      }
+    } catch (error) {
+      console.error("Failed to create new chat:", error);
+      setError(`Failed to create new chat: ${error.message || "Network error. Please check your connection."}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle session selection
+  const handleSessionSelect = async (sessionId) => {
+    setSessionId(sessionId);
+    setError(null);
+    // Close sidebar on mobile after selecting a session
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+    setIsLoading(true);
+    
+    // Load messages for this session
+    try {
+      const authToken = localStorage.getItem(authStorageKeys.authToken);
+      const response = await fetch(`${apiBaseUrl}/chat/sessions/${sessionId}/messages`, {
+        headers: {
+          "Authorization": `Bearer ${authToken}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.messages && data.messages.length > 0) {
+          // Convert backend messages to frontend format
+          const formattedMessages = data.messages.map(msg => ({
+            id: `msg-${msg.id}`,
+            role: msg.is_user_message ? "user" : "assistant",
+            content: msg.content,
+            imageUrl: null, // Could be enhanced to support images
+          }));
+          
+          // Check if first message is from assistant (welcome message)
+          // If not, prepend welcome message
+          if (formattedMessages.length === 0 || formattedMessages[0].role !== "assistant") {
+            setMessages([...initialMessages, ...formattedMessages]);
+          } else {
+            // First message is assistant, so use all messages as-is
+            setMessages(formattedMessages);
+          }
+          
+          // Save to localStorage
+          try {
+            localStorage.setItem(storageKeys.messages, JSON.stringify(formattedMessages));
+            localStorage.setItem(storageKeys.session, sessionId.toString());
+          } catch (e) {
+            console.warn("Failed to save messages to localStorage:", e);
+          }
+        } else {
+          // No messages yet, start fresh
+          setMessages(initialMessages);
+        }
+      } else {
+        if (response.status === 404) {
+          setError("Chat session not found.");
+        } else {
+          setError("Failed to load chat history.");
+        }
+        setMessages(initialMessages);
+      }
+    } catch (error) {
+      console.error("Failed to load session:", error);
+      setError("Failed to load chat history. Please try again.");
+      setMessages(initialMessages);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Check for 401 errors and handle logout
+  useEffect(() => {
+    const handle401Error = () => {
+      if (error && error.includes("401") || error && error.includes("Authentication")) {
+        handleLogout();
+      }
+    };
+    handle401Error();
+  }, [error]);
+
+  // Show login form if not authenticated
+  if (!isAuthenticated) {
+    return <LoginForm onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  // Full-screen mode - always show chat
+  const isInIframe = window.self !== window.top;
+  const isFullScreen = true; // Always full screen
 
   return (
-    <div className={containerClass}>
-      {!isInIframe && (
-        <button
-          type="button"
-          onClick={toggleWidget}
-          className="flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:scale-105 active:scale-95"
-          style={{
-            backgroundColor: uiSettings.primary_color,
-            boxShadow: `0 10px 25px ${uiSettings.primary_color}40`,
-          }}
-          onMouseEnter={(e) => {
-            e.target.style.opacity = "0.9";
-            e.target.style.transform = "scale(1.05)";
-          }}
-          onMouseLeave={(e) => {
-            e.target.style.opacity = "1";
-            e.target.style.transform = "scale(1)";
-          }}
-          aria-expanded={isOpen}
-        >
-          <span className="h-5 w-5 transition-transform duration-300" style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>💬</span>
-          {buttonLabel}
-        </button>
-      )}
+    <div className="fixed inset-0 w-full h-full font-sans bg-white flex flex-col">
+      {/* Sidebar */}
+      <ChatSidebar
+        key={sessionId} // Force re-render when session changes
+        currentSessionId={sessionId}
+        onSessionSelect={handleSessionSelect}
+        onNewChat={handleNewChat}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onLogout={handleLogout}
+      />
 
-      {(isOpen || isInIframe) && (
-        <div 
-          className={`overflow-hidden rounded-3xl border border-slate-200 shadow-2xl ${isInIframe ? 'h-full' : 'mt-4 animate-slide-in-up'}`}
-          style={{
-            width: isInIframe ? '100%' : widgetWidth,
-            height: isInIframe ? '100%' : 'auto',
-            backgroundColor: uiSettings.background_color,
-            animation: isInIframe ? 'none' : 'slideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
+      {/* Full-screen chat container */}
+      <div 
+        className="h-full flex flex-col transition-all duration-300"
+        style={{
+          backgroundColor: uiSettings.background_color || '#ffffff',
+          display: 'flex',
+          flexDirection: 'column',
+          // On desktop/tablet (md and up): calculate width to account for sidebar
+          // On mobile: full width when sidebar closed, adjusted when open
+          width: window.innerWidth >= 768 
+            ? `calc(100% - ${uiSettings.custom_settings?.sidebar_width || 280}px)`
+            : sidebarOpen 
+              ? `calc(100% - ${uiSettings.custom_settings?.sidebar_width || 280}px)`
+              : '100%',
+          marginLeft: window.innerWidth >= 768 ? `${uiSettings.custom_settings?.sidebar_width || 280}px` : (sidebarOpen ? `${uiSettings.custom_settings?.sidebar_width || 280}px` : '0'),
+        }}
+      >
           <header 
-            className="flex items-center gap-3 px-5 py-4 text-white"
+            className="flex items-center justify-between gap-3 px-4 md:px-6 py-4 border-b border-gray-200 flex-shrink-0"
             style={{
-              background: `linear-gradient(135deg, ${uiSettings.primary_color}, ${uiSettings.secondary_color})`,
+              backgroundColor: '#ffffff',
+              width: '100%',
+              maxWidth: '100%',
+              minWidth: 0,
+              overflow: 'visible', // Ensure buttons aren't clipped
             }}
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-xl overflow-hidden flex-shrink-0">
-              {uiSettings.header_image_url ? (
-                <img src={uiSettings.header_image_url} alt="Bot Header" className="h-full w-full rounded-full object-cover" />
-              ) : uiSettings.bot_icon_url ? (
-                <img src={uiSettings.bot_icon_url} alt="Bot" className="h-full w-full rounded-full object-cover" />
-              ) : (
-                "🤖"
+            <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
+              {/* Hamburger menu button - visible on mobile, hidden on desktop/tablet */}
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0 md:hidden"
+                title="Toggle sidebar"
+                aria-label="Toggle sidebar"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5 text-gray-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <span className="flex h-8 w-8 items-center justify-center rounded-full text-xl overflow-hidden flex-shrink-0">
+                {uiSettings.header_image_url ? (
+                  <img src={uiSettings.header_image_url} alt="Bot Header" className="h-full w-full rounded-full object-cover" />
+                ) : uiSettings.bot_icon_url ? (
+                  <img src={uiSettings.bot_icon_url} alt="Bot" className="h-full w-full rounded-full object-cover" />
+                ) : (
+                  "🤖"
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base md:text-lg font-semibold leading-tight truncate text-gray-900">{uiSettings.bot_name || 'AskCache.ai Assistant'}</h2>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0" style={{ minWidth: 0 }}>
+              {messages.length > 1 && (
+                <button
+                  onClick={handleClearChat}
+                  disabled={isLoading}
+                  className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-gray-100 transition-colors duration-200 flex-shrink-0 text-gray-600"
+                  title="Clear chat and start new conversation"
+                  style={{
+                    opacity: isLoading ? 0.5 : 1,
+                    cursor: isLoading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <svg 
+                    xmlns="http://www.w3.org/2000/svg" 
+                    className="h-5 w-5" 
+                    fill="none" 
+                    viewBox="0 0 24 24" 
+                    stroke="currentColor"
+                  >
+                    <path 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round" 
+                      strokeWidth={2} 
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" 
+                    />
+                  </svg>
+                </button>
               )}
-            </span>
-            <div>
-              <h2 className="text-base font-bold leading-tight">{uiSettings.bot_name || 'Virtual Assistant'}</h2>
+              <button
+                onClick={() => setProfileOpen(true)}
+                className="flex items-center justify-center h-8 px-3 rounded-lg hover:bg-gray-100 transition-colors duration-200 flex-shrink-0 text-gray-600 text-sm whitespace-nowrap"
+                title="Profile Settings"
+              >
+                <svg 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  className="h-4 w-4 mr-1 flex-shrink-0" 
+                  fill="none" 
+                  viewBox="0 0 24 24" 
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                <span className="hidden sm:inline">Profile</span>
+              </button>
+              <button
+                onClick={handleLogout}
+                className="flex items-center justify-center h-8 px-3 rounded-lg hover:bg-gray-100 transition-colors duration-200 flex-shrink-0 text-gray-600 text-sm whitespace-nowrap"
+                title="Logout"
+              >
+                <svg 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  className="h-4 w-4 mr-1 flex-shrink-0" 
+                  fill="none" 
+                  viewBox="0 0 24 24" 
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                <span className="hidden sm:inline">Logout</span>
+              </button>
             </div>
           </header>
 
+          {/* User Profile Modal */}
+          <UserProfile
+            isOpen={profileOpen}
+            onClose={() => setProfileOpen(false)}
+            onLogout={handleLogout}
+          />
+
           <div 
             ref={chatBodyRef} 
-            className={`flex flex-col gap-4 overflow-y-auto px-4 py-5 ${isInIframe ? 'flex-1' : 'max-h-[420px]'}`}
+            className="flex flex-col gap-6 overflow-y-auto flex-1 px-4 py-8"
             style={{
-              backgroundColor: uiSettings.background_color,
+              backgroundColor: uiSettings.background_color || '#ffffff',
+              maxWidth: '768px',
+              margin: '0 auto',
+              width: '100%',
+              // Ensure scrolling is always enabled, even during loading
+              pointerEvents: 'auto',
+              touchAction: 'pan-y',
             }}
           >
             {messages.map((message) => (
@@ -1107,101 +1751,11 @@ export default function ChatWidget() {
                 content={message.content} 
                 settings={uiSettings}
                 isTyping={message.isTyping}
+                imageUrl={message.imageUrl || null}
+                userImageUrl={message.imageUrl && message.role === "user" ? message.imageUrl : null}
               />
             ))}
             {isLoading && !messages.some(msg => msg.isTyping) && <TypingIndicator settings={uiSettings} />}
-
-            {showInfoForm && !infoSubmitted && (
-              <div className="rounded-2xl border border-indigo-200 bg-white p-4 text-sm text-slate-700 shadow animate-fade-in-up">
-                <p className="mb-3 font-semibold text-indigo-600">Let us stay in touch</p>
-                <p className="mb-4 text-xs text-slate-500">
-                  Please share your contact details to continue chatting. Our team can follow up with tailored recommendations.
-                </p>
-                <form onSubmit={handleInfoSubmit} className="flex flex-col gap-3 text-sm">
-                  <input
-                    name="name"
-                    type="text"
-                    value={formData.name}
-                    onChange={handleFormChange}
-                    placeholder="Your name"
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 focus:outline-none transition-all duration-200"
-                    style={{
-                      borderColor: '#e2e8f0',
-                    }}
-                    onFocus={(e) => {
-                      e.target.style.borderColor = uiSettings.primary_color;
-                      e.target.style.boxShadow = `0 0 0 3px ${uiSettings.primary_color}20`;
-                    }}
-                    onBlur={(e) => {
-                      e.target.style.borderColor = '#e2e8f0';
-                      e.target.style.boxShadow = 'none';
-                    }}
-                  />
-                  <input
-                    name="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={handleFormChange}
-                    placeholder="Email address"
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 focus:outline-none transition-all duration-200"
-                    style={{
-                      borderColor: '#e2e8f0',
-                    }}
-                    onFocus={(e) => {
-                      e.target.style.borderColor = uiSettings.primary_color;
-                      e.target.style.boxShadow = `0 0 0 3px ${uiSettings.primary_color}20`;
-                    }}
-                    onBlur={(e) => {
-                      e.target.style.borderColor = '#e2e8f0';
-                      e.target.style.boxShadow = 'none';
-                    }}
-                    required
-                  />
-                  <input
-                    name="phone"
-                    type="tel"
-                    value={formData.phone}
-                    onChange={handleFormChange}
-                    placeholder="Phone number"
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 focus:outline-none transition-all duration-200"
-                    style={{
-                      borderColor: '#e2e8f0',
-                    }}
-                    onFocus={(e) => {
-                      e.target.style.borderColor = uiSettings.primary_color;
-                      e.target.style.boxShadow = `0 0 0 3px ${uiSettings.primary_color}20`;
-                    }}
-                    onBlur={(e) => {
-                      e.target.style.borderColor = '#e2e8f0';
-                      e.target.style.boxShadow = 'none';
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    className="mt-1 rounded-xl px-3 py-2 font-semibold text-white transition-all duration-200 disabled:cursor-not-allowed hover:scale-105 active:scale-95"
-                    style={{
-                      backgroundColor: uiSettings.primary_color,
-                      opacity: isLoading ? 0.6 : 1,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isLoading) {
-                        e.target.style.opacity = "0.9";
-                        e.target.style.transform = "scale(1.05)";
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isLoading) {
-                        e.target.style.opacity = "1";
-                        e.target.style.transform = "scale(1)";
-                      }
-                    }}
-                    disabled={isLoading}
-                  >
-                    {isLoading ? "Saving..." : "Submit"}
-                  </button>
-                </form>
-              </div>
-            )}
 
             {error && (
               <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 animate-fade-in-up">
@@ -1210,107 +1764,292 @@ export default function ChatWidget() {
             )}
           </div>
 
-          <form 
-            onSubmit={handleSendMessage} 
-            className="border-t border-slate-200 p-3 sm:p-4"
-            style={{
-              backgroundColor: uiSettings.background_color,
-            }}
-          >
-            <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
-              <input
-                ref={inputRef}
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder={isRecording ? "Listening..." : "Type your message..."}
-                className="chat-input-field rounded-2xl border border-slate-300 px-3 py-2.5 text-sm sm:px-4 sm:py-3 focus:outline-none"
-                style={{
-                  borderColor: isRecording 
-                    ? '#ef4444' 
-                    : (uiSettings.background_color === '#ffffff' ? '#cbd5e1' : 'rgba(255,255,255,0.2)'),
-                  fontSize: isInIframe ? '16px' : undefined, // Prevent zoom on iOS
-                  flex: '1 1 0',
-                  minWidth: 0,
-                }}
-                onFocus={(e) => {
-                  if (!isRecording) {
-                    e.target.style.borderColor = uiSettings.primary_color;
-                  }
-                }}
-                onBlur={(e) => {
-                  if (!isRecording) {
-                    e.target.style.borderColor = uiSettings.background_color === '#ffffff' ? '#cbd5e1' : 'rgba(255,255,255,0.2)';
-                  }
-                }}
-                disabled={isLoading || isRecording || (showInfoForm && !infoSubmitted)}
-              />
-              <button
-                type="button"
-                onClick={handleVoiceInput}
-                className={`chat-action-button flex items-center justify-center rounded-full transition-all duration-200 hover:scale-110 active:scale-95 touch-manipulation flex-shrink-0 ${
-                  isRecording ? 'animate-pulse' : ''
-                } ${!isVoiceSupported ? 'opacity-30 cursor-not-allowed' : ''}`}
-                style={{
-                  backgroundColor: isRecording ? '#ef4444' : uiSettings.primary_color,
-                  opacity: (!isVoiceSupported || isLoading) ? 0.5 : 1,
-                  color: 'white',
-                }}
-                disabled={isLoading || !isVoiceSupported || (showInfoForm && !infoSubmitted)}
-                title={
-                  !isVoiceSupported 
-                    ? 'Voice input not supported in this browser' 
-                    : (isRecording ? 'Stop recording' : 'Start voice input')
-                }
-              >
-                {isRecording ? (
-                  <svg className="chat-action-icon" fill="currentColor" viewBox="0 0 24 24">
-                    <rect x="6" y="6" width="12" height="12" rx="2"/>
+          <div className="border-t border-gray-200 bg-white">
+            <form 
+              onSubmit={handleSendMessage} 
+              className="max-w-3xl mx-auto px-4 py-4"
+            >
+            {/* Image Preview */}
+            {uploadedImage && (
+              <div className="mb-3 relative inline-block">
+                <img 
+                  src={`${apiBaseUrl}${uploadedImage}`} 
+                  alt="Uploaded" 
+                  className="max-w-xs max-h-48 rounded-lg border border-gray-300"
+                />
+                <button
+                  type="button"
+                  onClick={() => setUploadedImage(null)}
+                  className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                  title="Remove image"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
-                ) : (
-                  <svg className="chat-action-icon" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
-                  </svg>
-                )}
-              </button>
-              <button
-                type="submit"
-                className="chat-action-button flex items-center justify-center rounded-full text-white transition-all duration-200 disabled:cursor-not-allowed hover:scale-110 active:scale-95 touch-manipulation flex-shrink-0"
-                style={{
-                  backgroundColor: uiSettings.primary_color,
-                  opacity: (isLoading || !input.trim()) ? 0.5 : 1,
-                }}
-                onMouseEnter={(e) => {
-                  if (!isLoading && input.trim()) {
-                    e.target.style.opacity = "0.9";
-                    e.target.style.transform = "scale(1.1)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isLoading && input.trim()) {
-                    e.target.style.opacity = "1";
-                    e.target.style.transform = "scale(1)";
-                  }
-                }}
-                disabled={isLoading || !input.trim() || (showInfoForm && !infoSubmitted)}
-              >
-                {isLoading ? (
-                  <svg className="chat-action-icon animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                </button>
+              </div>
+            )}
+            
+            {/* Document Preview */}
+            {uploadedDocuments.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {uploadedDocuments.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="relative inline-flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-300"
+                  >
+                    <svg className="h-4 w-4 text-gray-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span className="text-sm text-gray-700 truncate max-w-[200px]" title={doc.filename}>
+                      {doc.filename}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setUploadedDocuments(prev => prev.filter(d => d.id !== doc.id))}
+                      className="ml-1 p-0.5 rounded hover:bg-gray-200 transition-colors flex-shrink-0"
+                      title="Remove document"
+                    >
+                      <svg className="w-3 h-3 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
+              {/* Document Upload Button */}
+              <label className="flex items-center justify-center h-[52px] w-[52px] rounded-full border-2 border-gray-300 hover:border-indigo-500 transition-colors cursor-pointer flex-shrink-0" title="Upload document (PDF, TXT)">
+                <input
+                  type="file"
+                  ref={documentInputRef}
+                  accept=".pdf,.txt,application/pdf,text/plain"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    
+                    // Validate file type
+                    const fileExt = file.name.toLowerCase().split('.').pop();
+                    if (!['pdf', 'txt'].includes(fileExt)) {
+                      setError("Invalid file type. Please upload PDF or TXT files only.");
+                      return;
+                    }
+                    
+                    // Validate file size (50MB max)
+                    if (file.size > 50 * 1024 * 1024) {
+                      setError("File too large. Maximum size is 50MB.");
+                      return;
+                    }
+                    
+                    setUploadingDocument(true);
+                    setError(null);
+                    
+                    try {
+                      const authToken = localStorage.getItem(authStorageKeys.authToken);
+                      if (!authToken) {
+                        setIsAuthenticated(false);
+                        setError("Please login to continue document upload.");
+                        setUploadingDocument(false);
+                        return;
+                      }
+                      
+                      const formData = new FormData();
+                      formData.append('file', file);
+                      if (sessionId) {
+                        formData.append('session_id', sessionId.toString());
+                      }
+                      
+                      const response = await fetch(`${apiBaseUrl}/chat/upload-document`, {
+                        method: "POST",
+                        headers: {
+                          "Authorization": `Bearer ${authToken}`,
+                        },
+                        body: formData,
+                      });
+                      
+                      if (response.ok) {
+                        const data = await response.json();
+                        setUploadedDocuments(prev => [...prev, {
+                          id: data.document_id,
+                          filename: data.filename,
+                          file_type: data.file_type,
+                          file_size: data.file_size,
+                        }]);
+                        setSessionId(data.session_id);
+                        if (!input.trim()) {
+                          setInput("Analyze this document");
+                        }
+                      } else if (response.status === 401) {
+                        handleLogout();
+                        setError("Session expired. Please login again.");
+                      } else {
+                        const errorData = await response.json().catch(() => ({}));
+                        setError(errorData.detail || "Failed to upload document.");
+                      }
+                    } catch (err) {
+                      console.error("Failed to upload document:", err);
+                      setError("Network error. Please try again.");
+                    } finally {
+                      setUploadingDocument(false);
+                      // Reset file input
+                      if (documentInputRef.current) {
+                        documentInputRef.current.value = '';
+                      }
+                    }
+                  }}
+                  disabled={isLoading || uploadingDocument}
+                />
+                {uploadingDocument ? (
+                  <svg className="h-5 w-5 animate-spin text-gray-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                   </svg>
                 ) : (
-                  <span className="chat-action-text">➤</span>
+                  <svg className="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
+              </label>
+              
+              {/* Image Upload Button */}
+              <label className="flex items-center justify-center h-[52px] w-[52px] rounded-full border-2 border-gray-300 hover:border-indigo-500 transition-colors cursor-pointer flex-shrink-0" title="Upload image">
+                <input
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    
+                    // Validate file size (20MB max)
+                    if (file.size > 20 * 1024 * 1024) {
+                      setError("Image too large. Maximum size is 20MB.");
+                      return;
+                    }
+                    
+                    setUploadingImage(true);
+                    setError(null);
+                    
+                    try {
+                      const authToken = localStorage.getItem(authStorageKeys.authToken);
+                      const formData = new FormData();
+                      formData.append('file', file);
+                      
+                      const response = await fetch(`${apiBaseUrl}/chat/upload-image`, {
+                        method: "POST",
+                        headers: {
+                          "Authorization": `Bearer ${authToken}`,
+                        },
+                        body: formData,
+                      });
+                      
+                      if (response.ok) {
+                        const data = await response.json();
+                        setUploadedImage(data.image_url);
+                      } else if (response.status === 401) {
+                        handleLogout();
+                        setError("Session expired. Please login again.");
+                      } else {
+                        const errorData = await response.json().catch(() => ({}));
+                        setError(errorData.detail || "Failed to upload image.");
+                      }
+                    } catch (err) {
+                      console.error("Failed to upload image:", err);
+                      setError("Network error. Please try again.");
+                    } finally {
+                      setUploadingImage(false);
+                      // Reset file input
+                      e.target.value = '';
+                    }
+                  }}
+                  disabled={isLoading || uploadingImage}
+                  ref={fileInputRef}
+                />
+                {uploadingImage ? (
+                  <svg className="h-5 w-5 animate-spin text-gray-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                ) : (
+                  <svg className="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                )}
+              </label>
+              
+              <div className="flex-1 relative">
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  placeholder={isRecording ? "Listening..." : uploadedImage ? "Ask about this image..." : uploadedDocuments.length > 0 ? "Ask about these documents..." : "Message AskCache.ai..."}
+                  rows={1}
+                  className="w-full rounded-2xl border border-gray-300 px-4 py-3 text-base resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  style={{
+                    borderColor: isRecording ? '#ef4444' : '#d1d5db',
+                    fontSize: '16px',
+                    minHeight: '52px',
+                    maxHeight: '200px',
+                    lineHeight: '1.5',
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage(e);
+                    }
+                  }}
+                  onFocus={(e) => {
+                    if (!isRecording) {
+                      e.target.style.borderColor = uiSettings.primary_color || '#4338ca';
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (!isRecording) {
+                      e.target.style.borderColor = '#d1d5db';
+                    }
+                  }}
+                  disabled={isLoading || isRecording || uploadingDocument}
+                />
+              </div>
+              <button
+                type="submit"
+                className="flex items-center justify-center h-[52px] w-[52px] rounded-full text-white transition-all duration-200 disabled:cursor-not-allowed hover:opacity-90 active:scale-95 flex-shrink-0"
+                  style={{
+                    backgroundColor: uiSettings.primary_color || '#4338ca',
+                    opacity: (isLoading || (!input.trim() && !uploadedImage && uploadedDocuments.length === 0)) ? 0.5 : 1,
+                  }}
+                onMouseEnter={(e) => {
+                  if (!isLoading && (input.trim() || uploadedImage || uploadedDocuments.length > 0)) {
+                    e.target.style.opacity = "0.9";
+                    e.target.style.transform = "scale(1.05)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isLoading && (input.trim() || uploadedImage || uploadedDocuments.length > 0)) {
+                    e.target.style.opacity = "1";
+                    e.target.style.transform = "scale(1)";
+                  }
+                }}
+                disabled={isLoading || (!input.trim() && !uploadedImage && uploadedDocuments.length === 0)}
+              >
+                {isLoading ? (
+                  <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                ) : (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
                 )}
               </button>
             </div>
-            {uiSettings.show_branding && (
-              <div className="mt-2 text-center text-xs text-slate-400">
-                Powered by <span style={{ color: uiSettings.primary_color, fontWeight: 600 }}>Cache Digitech</span>
-              </div>
-            )}
           </form>
+          </div>
         </div>
-      )}
     </div>
   );
 }

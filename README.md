@@ -1,5 +1,5 @@
-# SUPER GEMINI LLM + CUSTOM RAG Chatbot
-**Made with ❤️ by Rishabh Gaur (@ronanop) for Cache Digitech**
+# AskCache.ai - AI-Powered RAG Chatbot
+**Made with ❤️ by Rishabh Gaur (@ronanop)**
 
 A comprehensive, production-ready AI chatbot solution powered by Google Gemini, featuring RAG (Retrieval-Augmented Generation), knowledge base management, web crawling, and a beautiful admin panel.
 

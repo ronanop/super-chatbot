@@ -53,8 +53,8 @@
     {% endif %}
     <form action="/admin/ingestion/crawl" method="post">
       <label for="urls">URLs</label>
-      <textarea name="urls" placeholder="https://cachedigitech.com
-https://cachedigitech.com/services" required></textarea>
+      <textarea name="urls" placeholder="https://example.com
+https://example.com/services" required></textarea>
       <label for="crawl-folder">Folder</label>
       <input type="text" name="folder" id="crawl-folder" placeholder="e.g. services" value="general" />
       <button class="btn btn-primary" type="submit">Start Crawl</button>
@@ -165,11 +165,11 @@ https://cachedigitech.com/services" required></textarea>
     </p>
   </div>
 </div>
-<script id="ingestion-progress-data" type="application/json">{{ progress_jobs | tojson }}</script>
-<script id="ingestion-highlight" type="application/json">{{ highlight_job | tojson }}</script>
-<script id="crawl-job-data" type="application/json">{{ crawl_job | tojson }}</script>
-<script id="crawl-job-id" type="application/json">{{ crawl_job_id | tojson }}</script>
-<style>
+<script id="ingestion-progress-data" type="application/json" nonce="{{ request.state.csp_nonce if request.state.csp_nonce else '' }}">{{ progress_jobs | tojson }}</script>
+<script id="ingestion-highlight" type="application/json" nonce="{{ request.state.csp_nonce if request.state.csp_nonce else '' }}">{{ highlight_job | tojson }}</script>
+<script id="crawl-job-data" type="application/json" nonce="{{ request.state.csp_nonce if request.state.csp_nonce else '' }}">{{ crawl_job | tojson }}</script>
+<script id="crawl-job-id" type="application/json" nonce="{{ request.state.csp_nonce if request.state.csp_nonce else '' }}">{{ crawl_job_id | tojson }}</script>
+<style nonce="{{ request.state.csp_nonce if request.state.csp_nonce else '' }}">
   .progress-item {
     border: 1px solid #e2e8f0;
     border-radius: 14px;
@@ -308,7 +308,7 @@ https://cachedigitech.com/services" required></textarea>
     background:#fecaca;
   }
 </style>
-<script>
+<script nonce="{{ request.state.csp_nonce if request.state.csp_nonce else '' }}">
   (function () {
     const container = document.getElementById('progress-container');
     const emptyState = document.getElementById('progress-empty');
@@ -422,7 +422,7 @@ https://cachedigitech.com/services" required></textarea>
     setInterval(poll, 4000);
   })();
 </script>
-<script>
+<script nonce="{{ request.state.csp_nonce if request.state.csp_nonce else '' }}">
   (function () {
     const statusEl = document.getElementById('crawl-job-status');
     const linksContainer = document.getElementById('crawl-links-container');

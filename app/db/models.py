@@ -17,6 +17,7 @@ class User(Base):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Hashed password for authentication
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -39,6 +40,9 @@ class ChatSession(Base):
     messages: Mapped[list["Message"]] = relationship(
         back_populates="session", cascade="all, delete-orphan", passive_deletes=True
     )
+    documents: Mapped[list["ChatDocument"]] = relationship(
+        "ChatDocument", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class Message(Base):
@@ -50,11 +54,31 @@ class Message(Base):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     is_user_message: Mapped[bool] = mapped_column(nullable=False)
+    image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)  # URL to uploaded image
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
     session: Mapped[ChatSession] = relationship(back_populates="messages")
+
+
+class ChatDocument(Base):
+    __tablename__ = "chat_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'pdf', 'txt'
+    file_size: Mapped[int] = mapped_column(nullable=False)  # Size in bytes
+    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # Extracted text content
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    session: Mapped[ChatSession] = relationship("ChatSession")
 
 
 class KnowledgeDocument(Base):
@@ -120,7 +144,7 @@ class BotUISettings(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     # Basic settings
-    bot_name: Mapped[str] = mapped_column(String(255), nullable=False, default="Cache Digitech Virtual Assistant")
+    bot_name: Mapped[str] = mapped_column(String(255), nullable=False, default="AskCache.ai Assistant")
     bot_icon_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     header_image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)  # Custom header image (circular)
     welcome_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -160,7 +184,23 @@ class AppSettings(Base):
     auto_detect_api_url: Mapped[bool] = mapped_column(nullable=False, default=True)
     # Custom Chatbot Instructions
     custom_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)  # Custom instructions for chatbot
+    # LLM Provider Selection (always OpenAI)
+    llm_provider: Mapped[str] = mapped_column(String(20), nullable=False, default="openai")  # Always "openai"
     
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class AdminLoginAttempt(Base):
+    __tablename__ = "admin_login_attempts"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    ip_address: Mapped[str] = mapped_column(String(45), nullable=False, index=True)  # IPv6 max length
+    username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    success: Mapped[bool] = mapped_column(nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(String(100), nullable=False)  # invalid_credentials, success, locked_out, etc.
+    attempted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)

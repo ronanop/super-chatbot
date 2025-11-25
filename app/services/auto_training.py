@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models
 from app.ingestion.text_splitter import split_text
-from app.services.gemini import get_generation_model
+from app.services.llm import generate_content
 from app.vectorstore.pinecone_store import upsert_chunks
 from app.ingestion.types import DocumentChunk
 
@@ -26,11 +26,10 @@ def extract_knowledge_from_conversation(
     model=None
 ) -> Optional[str]:
     """
-    Extract structured knowledge/facts from a conversation using Gemini.
+    Extract structured knowledge/facts from a conversation using LLM.
     Returns extracted knowledge as text, or None if no useful knowledge found.
     """
-    if not model:
-        model = get_generation_model()
+    # Note: model parameter kept for backward compatibility but not used
     
     extraction_prompt = f"""You are a knowledge extraction system. Analyze the following conversation and extract any factual, useful information that could be added to a knowledge base.
 
@@ -48,12 +47,18 @@ INSTRUCTIONS:
 EXTRACTED KNOWLEDGE (or "NO_KNOWLEDGE" if none):"""
 
     try:
-        result = model.generate_content(extraction_prompt)
-        extracted = getattr(result, "text", "").strip()
-        
-        if extracted and extracted.upper() != "NO_KNOWLEDGE" and len(extracted) > 50:
-            return extracted
-        return None
+        # Get database session for provider selection
+        from app.db.session import SessionLocal
+        db = SessionLocal()
+        try:
+            result = generate_content(extraction_prompt, db=db)
+            extracted = result.text.strip()
+            
+            if extracted and extracted.upper() != "NO_KNOWLEDGE" and len(extracted) > 50:
+                return extracted
+            return None
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"Error extracting knowledge from conversation: {e}")
         return None
@@ -152,7 +157,7 @@ def process_conversation_for_training(
             if not should_add_to_knowledge_base(user_message, bot_response, session, db):
                 return False
             
-            # Extract structured knowledge using Gemini
+            # Extract structured knowledge using OpenAI
             extracted_knowledge = extract_knowledge_from_conversation(user_message, bot_response)
             
             if extracted_knowledge:

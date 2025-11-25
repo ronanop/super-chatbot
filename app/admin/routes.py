@@ -39,6 +39,28 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.admin.dependencies import require_admin, get_admin_username
 from app.admin.log_handler import get_admin_log_handler, setup_admin_logging
+from app.admin.input_validation import (
+    ValidationError,
+    validate_folder_name,
+    validate_display_name,
+    validate_filename,
+    validate_file_upload,
+    validate_path,
+    validate_url,
+    validate_hex_color,
+    validate_id,
+    validate_confirm_text,
+    validate_query_param,
+    validate_string_length,
+    sanitize_string,
+    check_dangerous_content,
+    validate_file_path_safe,
+    MAX_FILE_SIZE,
+    ALLOWED_PDF_EXTENSIONS,
+    ALLOWED_PDF_MIMES,
+    ALLOWED_IMAGE_EXTENSIONS,
+    ALLOWED_IMAGE_MIMES,
+)
 from app.db import models
 from app.db.session import SessionLocal
 from app.ingestion import progress as ingestion_progress
@@ -63,8 +85,12 @@ FOLDER_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 def sanitize_folder(value: str) -> str:
-    cleaned = FOLDER_PATTERN.sub("-", value.strip()).strip("-").lower()
-    return cleaned or "general"
+    """Sanitize folder name using maximum security validation."""
+    try:
+        return validate_folder_name(value)
+    except ValidationError as e:
+        logger.warning(f"Invalid folder name '{value}': {e}")
+        return "general"
 
 
 def slugify_value(value: str) -> str:
@@ -504,49 +530,145 @@ def _reingest_document(doc_id: int, old_path: str | None = None, job_id: str | N
 
 @router.get("/login", response_class=HTMLResponse)
 async def admin_login(request: Request):
-    """Display login page."""
+    """Display login page with security checks."""
+    from app.admin.security import generate_csrf_token, get_client_ip, check_rate_limit
+    
     # If already logged in, redirect to dashboard
     if request.session.get("admin_authenticated"):
         return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
     
+    # Check rate limiting
+    ip_address = get_client_ip(request)
+    rate_ok, rate_error = check_rate_limit(ip_address)
+    if not rate_ok:
+        error = f"Rate limit exceeded. {rate_error}"
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": error},
+        )
+    
+    # Generate CSRF token for this session
+    csrf_token = generate_csrf_token()
+    request.session["csrf_token"] = csrf_token
+    
     error = request.query_params.get("error")
     return templates.TemplateResponse(
         "login.html",
-        {"request": request, "error": error},
+        {"request": request, "error": error, "csrf_token": csrf_token},
     )
 
 
 @router.post("/login")
-async def admin_login_post(request: Request):
-    """Handle login form submission."""
+async def admin_login_post(request: Request, db: Session = Depends(get_db)):
+    """Handle login form submission with enhanced security."""
     import secrets
     import os
+    from app.admin.security import (
+        get_client_ip,
+        is_ip_locked_out,
+        record_failed_login_attempt,
+        record_successful_login,
+        check_rate_limit,
+        verify_csrf_token,
+        hash_ip_for_logging
+    )
+    
+    ip_address = get_client_ip(request)
+    user_agent = request.headers.get("User-Agent", "unknown")
+    
+    # Check rate limiting
+    rate_ok, rate_error = check_rate_limit(ip_address)
+    if not rate_ok:
+        logger.warning(f"[SECURITY] Rate limit exceeded for IP {hash_ip_for_logging(ip_address)}")
+        return RedirectResponse(
+            url="/admin/login?error=" + urllib.parse.quote_plus(f"Rate limit exceeded. {rate_error}"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    
+    # Check if IP is locked out
+    is_locked, lockout_until = is_ip_locked_out(ip_address)
+    if is_locked:
+        remaining_minutes = int((lockout_until - datetime.now()).total_seconds() / 60) + 1
+        logger.warning(f"[SECURITY] Locked out IP {hash_ip_for_logging(ip_address)} attempted login")
+        record_failed_login_attempt(db, ip_address, "unknown", "locked_out")
+        return RedirectResponse(
+            url="/admin/login?error=" + urllib.parse.quote_plus(
+                f"Too many failed attempts. IP address locked for {remaining_minutes} minutes."
+            ),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
     
     form_data = await request.form()
     username = form_data.get("username", "").strip()
     password = form_data.get("password", "")
+    csrf_token = form_data.get("csrf_token", "")
+    
+    # Verify CSRF token
+    session_csrf = request.session.get("csrf_token")
+    if not verify_csrf_token(session_csrf, csrf_token):
+        logger.warning(f"[SECURITY] CSRF token mismatch for IP {hash_ip_for_logging(ip_address)}")
+        record_failed_login_attempt(db, ip_address, username, "csrf_failure")
+        return RedirectResponse(
+            url="/admin/login?error=" + urllib.parse.quote_plus("Security token mismatch. Please refresh the page."),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
     
     admin_username = os.getenv("ADMIN_USERNAME", "admin")
     admin_password = os.getenv("ADMIN_PASSWORD")
     
     if not admin_password:
+        logger.error("[SECURITY] Admin password not configured")
         return RedirectResponse(
             url="/admin/login?error=" + urllib.parse.quote_plus("Admin password is not configured."),
             status_code=status.HTTP_303_SEE_OTHER,
         )
     
-    if not (
-        secrets.compare_digest(username, admin_username)
-        and secrets.compare_digest(password, admin_password)
-    ):
+    # Validate credentials with constant-time comparison
+    username_match = secrets.compare_digest(username, admin_username)
+    password_match = secrets.compare_digest(password, admin_password)
+    
+    if not (username_match and password_match):
+        # Record failed attempt
+        is_locked, lockout_until = record_failed_login_attempt(db, ip_address, username, "invalid_credentials")
+        
+        if is_locked:
+            remaining_minutes = int((lockout_until - datetime.now()).total_seconds() / 60) + 1
+            logger.warning(f"[SECURITY] IP {hash_ip_for_logging(ip_address)} locked out after multiple failed attempts")
+            return RedirectResponse(
+                url="/admin/login?error=" + urllib.parse.quote_plus(
+                    f"Too many failed attempts. IP address locked for {remaining_minutes} minutes."
+                ),
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+        
+        # Log failed attempt
+        logger.warning(f"[SECURITY] Failed login attempt from IP {hash_ip_for_logging(ip_address)}, username: {username[:3]}***")
+        
+        # Generic error message (don't reveal which field was wrong)
         return RedirectResponse(
             url="/admin/login?error=" + urllib.parse.quote_plus("Invalid username or password."),
             status_code=status.HTTP_303_SEE_OTHER,
         )
     
-    # Set session
+    # Successful login
+    record_successful_login(db, ip_address, username)
+    
+    # Generate new session ID for security (session rotation)
+    # Clear old session data first
+    old_session_id = request.session.get("_session_id")
+    request.session.clear()
+    
+    # Force session regeneration by modifying session
+    # Starlette will generate a new session ID when session data changes
+    from app.admin.security import generate_csrf_token
     request.session["admin_authenticated"] = True
     request.session["admin_username"] = username
+    request.session["login_time"] = datetime.now().isoformat()
+    request.session["login_ip"] = hash_ip_for_logging(ip_address)  # Store hashed IP for logging
+    request.session["csrf_token"] = generate_csrf_token()  # New CSRF token for this session
+    request.session["_session_rotated"] = True  # Flag to indicate session was rotated
+    
+    logger.info(f"[SECURITY] Successful admin login from IP {hash_ip_for_logging(ip_address)}, username: {username}")
     
     # Redirect to dashboard
     return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
@@ -764,15 +886,15 @@ async def admin_ingestion(request: Request, _: str = Depends(require_admin), db:
         message = request.query_params.get(f"{prefix}_message", "Completed")
         return {"success": flag == "success", "message": message}
 
-    widget_src = os.getenv("WIDGET_IFRAME_SRC", "https://cdn.cachedigitech.com/chatbot/index.html")
+    widget_src = os.getenv("WIDGET_IFRAME_SRC", "http://localhost:8000/embed")
     widget_iframe_template = textwrap.dedent(
         """
-        <div id="cachedigitech-chat-window" style="max-width: 420px; margin: 40px auto; border-radius: 24px; box-shadow: 0 24px 55px rgba(15, 23, 42, 0.35); overflow: hidden; background: #ffffff;">
+        <div id="askcache-chat-window" style="max-width: 420px; margin: 40px auto; border-radius: 24px; box-shadow: 0 24px 55px rgba(15, 23, 42, 0.35); overflow: hidden; background: #ffffff;">
           <div style="background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%); color: #ffffff; padding: 20px 24px; font-size: 18px; font-weight: 600; display:flex; align-items:center; gap:12px;">
             <span style="display:inline-flex; width: 40px; height: 40px; border-radius: 12px; background: rgba(255,255,255,0.15); align-items:center; justify-content:center;">💬</span>
-            <span>Cache Digitech Virtual Assistant</span>
+            <span>AskCache.ai Assistant</span>
           </div>
-          <iframe src="$src" title="Cache Digitech Virtual Assistant" style="display:block; width: 100%; height: 640px; border: none; background: #f8fafc;"></iframe>
+          <iframe src="$src" title="AskCache.ai Assistant" style="display:block; width: 100%; height: 640px; border: none; background: #f8fafc;"></iframe>
         </div>
         """
     ).strip()
@@ -782,16 +904,16 @@ async def admin_ingestion(request: Request, _: str = Depends(require_admin), db:
         """
         <script>
         (function() {
-          if (document.getElementById('cachedigitech-launcher')) return;
+          if (document.getElementById('askcache-launcher')) return;
           const launcher = document.createElement('div');
-          launcher.id = 'cachedigitech-launcher';
+          launcher.id = 'askcache-launcher';
           launcher.style.position = 'fixed';
           launcher.style.bottom = '24px';
           launcher.style.right = '24px';
           launcher.style.zIndex = '9999';
 
           const button = document.createElement('button');
-          button.textContent = 'Chat with Cache Digitech';
+          button.textContent = 'Chat with AskCache.ai';
           button.style.cssText = [
             'display:flex',
             'align-items:center',
@@ -812,7 +934,7 @@ async def admin_ingestion(request: Request, _: str = Depends(require_admin), db:
           frame.src = "$src";
           frame.width = '420';
           frame.height = '640';
-          frame.title = 'Cache Digitech Virtual Assistant';
+          frame.title = 'AskCache.ai Assistant';
           frame.style.cssText = [
             'display:none',
             'margin-top:16px',
@@ -929,24 +1051,55 @@ async def upload_pdf(
     _: str = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    if not pdf.filename:
+    """Upload PDF with maximum security validation."""
+    try:
+        # Validate filename
+        if not pdf.filename:
+            raise ValidationError("Please provide a PDF file.")
+        
+        # Validate folder name
+        folder_name = validate_folder_name(folder)
+        folder_path = KB_ROOT / folder_name
+        folder_path.mkdir(parents=True, exist_ok=True)
+        
+        # Read file content
+        contents = await pdf.read()
+        
+        # Validate file upload (filename, size, type, MIME)
+        safe_filename, mime_type = validate_file_upload(
+            contents,
+            pdf.filename,
+            max_size=MAX_FILE_SIZE,
+            allowed_extensions=ALLOWED_PDF_EXTENSIONS,
+            allowed_mimes=ALLOWED_PDF_MIMES
+        )
+        
+        # Validate path is safe
+        original_name = Path(safe_filename).name
+        suffix = Path(original_name).suffix or ".pdf"
+        stored_filename = build_filename(original_name, suffix, folder_path)
+        destination = validate_file_path_safe(
+            str(folder_path / stored_filename),
+            KB_ROOT
+        )
+        
+        # Write file
+        destination.write_bytes(contents)
+        
+    except ValidationError as e:
+        logger.warning(f"[SECURITY] PDF upload validation failed: {e}")
         return RedirectResponse(
             url="/admin/ingestion?pdf_status=error&pdf_message="
-            + urllib.parse.quote_plus("Please provide a PDF file."),
+            + urllib.parse.quote_plus(str(e)),
             status_code=status.HTTP_303_SEE_OTHER,
         )
-
-    folder_name = sanitize_folder(folder)
-    folder_path = KB_ROOT / folder_name
-    folder_path.mkdir(parents=True, exist_ok=True)
-
-    original_name = Path(pdf.filename).name
-    suffix = Path(original_name).suffix or ".pdf"
-    stored_filename = build_filename(original_name, suffix, folder_path)
-    destination = folder_path / stored_filename
-
-    contents = await pdf.read()
-    destination.write_bytes(contents)
+    except Exception as e:
+        logger.error(f"Error uploading PDF: {e}")
+        return RedirectResponse(
+            url="/admin/ingestion?pdf_status=error&pdf_message="
+            + urllib.parse.quote_plus("Error uploading file. Please try again."),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
 
     record = models.KnowledgeDocument(
         folder=folder_name,
@@ -987,17 +1140,41 @@ async def start_crawl(
     _: str = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    url_list = [line.strip() for line in urls.splitlines() if line.strip()]
-    if not url_list:
+    """Start crawl job with maximum security validation."""
+    try:
+        # Validate URLs input
+        urls = validate_string_length(urls, max_length=50000)  # Allow multiple URLs
+        urls = sanitize_string(urls)
+        
+        url_list = [line.strip() for line in urls.splitlines() if line.strip()]
+        if not url_list:
+            raise ValidationError("Provide at least one URL.")
+        
+        # Validate each URL
+        validated_urls = []
+        for url in url_list[:100]:  # Limit to 100 URLs max
+            validated_url = validate_url(url)
+            validated_urls.append(validated_url)
+        
+        if not validated_urls:
+            raise ValidationError("No valid URLs provided.")
+        
+        # Validate folder name
+        folder_name = validate_folder_name(folder)
+        
+        # Check for dangerous content
+        check_dangerous_content(urls)
+        
+    except ValidationError as e:
+        logger.warning(f"[SECURITY] Crawl validation failed: {e}")
         return RedirectResponse(
             url="/admin/ingestion?crawl_status=error&crawl_message="
-            + urllib.parse.quote_plus("Provide at least one URL."),
+            + urllib.parse.quote_plus(str(e)),
             status_code=status.HTTP_303_SEE_OTHER,
         )
-
-    folder_name = sanitize_folder(folder)
+    
     job_record = models.CrawlJob(
-        root_url=url_list[0],
+        root_url=validated_urls[0],
         folder=folder_name,
         status="pending",
         message="Queued for crawling",
@@ -1135,12 +1312,32 @@ async def rename_document(
     _: str = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    document = db.get(models.KnowledgeDocument, doc_id)
-    if not document:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-
-    cleaned_name = new_display_name.strip() or document.display_name
-    folder_name = sanitize_folder(new_folder)
+    """Rename document with maximum security validation."""
+    try:
+        # Validate doc_id
+        if doc_id < 1:
+            raise ValidationError("Invalid document ID")
+        
+        document = db.get(models.KnowledgeDocument, doc_id)
+        if not document:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        
+        # Validate display name
+        cleaned_name = validate_display_name(new_display_name) if new_display_name.strip() else document.display_name
+        
+        # Validate folder name
+        folder_name = validate_folder_name(new_folder)
+        
+        # Check for dangerous content
+        check_dangerous_content(cleaned_name)
+        
+    except ValidationError as e:
+        logger.warning(f"[SECURITY] Document rename validation failed: {e}")
+        return RedirectResponse(
+            url="/admin/ingestion?doc_status=error&doc_message="
+            + urllib.parse.quote_plus(str(e)),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
     dest_dir = KB_ROOT / folder_name
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1217,11 +1414,16 @@ async def delete_all_knowledge(
     _: str = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Delete all knowledge base documents, Pinecone vectors, and local files."""
-    if confirm != "DELETE ALL":
+    """Delete all knowledge base documents with maximum security validation."""
+    try:
+        # Validate confirmation text
+        if not validate_confirm_text(confirm, "DELETE ALL"):
+            raise ValidationError("Confirmation text must be exactly 'DELETE ALL'")
+    except ValidationError as e:
+        logger.warning(f"[SECURITY] Delete all validation failed: {e}")
         return RedirectResponse(
             url="/admin/ingestion?doc_status=error&doc_message="
-            + urllib.parse.quote_plus("Confirmation text must be 'DELETE ALL'"),
+            + urllib.parse.quote_plus(str(e)),
             status_code=status.HTTP_303_SEE_OTHER,
         )
     
@@ -1452,6 +1654,51 @@ async def save_bot_ui_settings(
     # Update advanced settings
     settings.custom_css = form_data.get("custom_css") or None
     
+    # Update full-screen UI custom settings (stored in JSON)
+    custom_settings = settings.custom_settings or {}
+    
+    # Header settings
+    custom_settings["header_bg_color"] = form_data.get("header_bg_color", "#ffffff")
+    custom_settings["header_text_color"] = form_data.get("header_text_color", "#1e293b")
+    custom_settings["header_border_color"] = form_data.get("header_border_color", "#e2e8f0")
+    custom_settings["header_height"] = form_data.get("header_height", "64")
+    
+    # Input bar settings
+    custom_settings["input_bg_color"] = form_data.get("input_bg_color", "#ffffff")
+    custom_settings["input_border_color"] = form_data.get("input_border_color", "#d1d5db")
+    custom_settings["input_text_color"] = form_data.get("input_text_color", "#1e293b")
+    custom_settings["input_placeholder_color"] = form_data.get("input_placeholder_color", "#9ca3af")
+    custom_settings["input_border_radius"] = form_data.get("input_border_radius", "16")
+    custom_settings["input_height"] = form_data.get("input_height", "52")
+    custom_settings["input_padding"] = form_data.get("input_padding", "12")
+    
+    # Sidebar settings
+    custom_settings["sidebar_bg_color"] = form_data.get("sidebar_bg_color", "#f9fafb")
+    custom_settings["sidebar_text_color"] = form_data.get("sidebar_text_color", "#1e293b")
+    custom_settings["sidebar_border_color"] = form_data.get("sidebar_border_color", "#e2e8f0")
+    custom_settings["sidebar_width"] = form_data.get("sidebar_width", "280")
+    custom_settings["sidebar_chat_hover_bg"] = form_data.get("sidebar_chat_hover_bg", "#f3f4f6")
+    custom_settings["sidebar_chat_active_bg"] = form_data.get("sidebar_chat_active_bg", "#e0e7ff")
+    
+    # Message bubble settings
+    custom_settings["message_border_radius"] = form_data.get("message_border_radius", "16")
+    custom_settings["message_padding"] = form_data.get("message_padding", "12")
+    custom_settings["message_gap"] = form_data.get("message_gap", "24")
+    custom_settings["message_max_width"] = form_data.get("message_max_width", "85")
+    custom_settings["message_shadow"] = form_data.get("message_shadow", "none")
+    
+    # Typography settings
+    custom_settings["font_family"] = form_data.get("font_family", "system")
+    custom_settings["font_size_base"] = form_data.get("font_size_base", "16")
+    custom_settings["font_size_small"] = form_data.get("font_size_small", "14")
+    custom_settings["font_weight_normal"] = form_data.get("font_weight_normal", "400")
+    
+    # Button settings
+    custom_settings["button_border_radius"] = form_data.get("button_border_radius", "8")
+    custom_settings["send_button_size"] = form_data.get("send_button_size", "52")
+    
+    settings.custom_settings = custom_settings
+    
     db.add(settings)
     db.commit()
     
@@ -1514,6 +1761,7 @@ async def get_bot_ui_settings_api(request: Request, db: Session = Depends(get_db
             "widget_size": default_settings.widget_size,
             "show_branding": default_settings.show_branding,
             "custom_css": default_settings.custom_css,
+            "custom_settings": default_settings.custom_settings or {},
             "settings_updated_at": datetime.now().isoformat(),  # Timestamp for change detection
         }
     else:
@@ -1552,6 +1800,7 @@ async def get_bot_ui_settings_api(request: Request, db: Session = Depends(get_db
             "widget_size": settings.widget_size,
             "show_branding": settings.show_branding,
             "custom_css": settings.custom_css,
+            "custom_settings": settings.custom_settings or {},
             "settings_updated_at": settings.updated_at.isoformat() if settings.updated_at else datetime.now().isoformat(),  # Timestamp for change detection
         }
     
@@ -1659,6 +1908,9 @@ async def save_custom_instructions(
     )
 
 
+# LLM provider is always OpenAI - no need for selection endpoint
+
+
 @router.post("/settings/auto-train")
 async def trigger_auto_training(
     background_tasks: BackgroundTasks,
@@ -1692,30 +1944,32 @@ async def get_api_config(request: Request, db: Session = Depends(get_db)) -> dic
     
     # If auto-detect is enabled or no URL is set, try to auto-detect
     if not settings or settings.auto_detect_api_url or not settings.api_base_url:
-        # Try to detect from request
+        # Try to detect from request origin
         try:
-            # Get host from request
-            host = request.headers.get("host", "localhost:8000")
-            # Extract hostname (remove port if present)
-            hostname = host.split(":")[0]
+            # Get origin from request headers (frontend's origin)
+            origin = request.headers.get("origin") or request.headers.get("referer", "")
             
-            # Use the same protocol as the request
-            scheme = "https" if request.url.scheme == "https" else "http"
-            
-            # If hostname is localhost or 127.0.0.1, try to get actual IP
-            if hostname in ["localhost", "127.0.0.1"]:
-                import socket
-                try:
-                    # Get local IP address
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.connect(("8.8.8.8", 80))
-                    local_ip = s.getsockname()[0]
-                    s.close()
-                    api_url = f"http://{local_ip}:8000"
-                except Exception:
-                    api_url = f"{scheme}://{hostname}:8000"
+            # If we have an origin, use it but replace port with backend port
+            if origin and origin.startswith("http"):
+                from urllib.parse import urlparse
+                parsed = urlparse(origin)
+                # Use the same hostname but backend port
+                api_url = f"{parsed.scheme}://{parsed.hostname}:8000"
             else:
-                api_url = f"{scheme}://{hostname}:8000"
+                # Get host from request
+                host = request.headers.get("host", "localhost:8000")
+                # Extract hostname (remove port if present)
+                hostname = host.split(":")[0]
+                
+                # Use the same protocol as the request
+                scheme = "https" if request.url.scheme == "https" else "http"
+                
+                # Prefer localhost for local development
+                if hostname in ["localhost", "127.0.0.1"]:
+                    api_url = "http://localhost:8000"
+                else:
+                    # Use the request hostname
+                    api_url = f"{scheme}://{hostname}:8000"
         except Exception:
             # Fallback to localhost
             api_url = "http://localhost:8000"

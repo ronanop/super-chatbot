@@ -104,7 +104,7 @@ Current limit: **5000 characters** per query
 
 3. **Questions with no KB matches:**
    - Should still provide helpful response
-   - Should suggest contacting Cache Digitech for specific info
+   - Should suggest contacting AskCache.ai for specific info
    - Should be professional and useful
 
 ### Monitoring

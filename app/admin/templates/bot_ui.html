@@ -275,6 +275,247 @@
       </div>
     </div>
 
+    <!-- Full-Screen UI Settings -->
+    <div style="margin-bottom:32px; padding-bottom:24px; border-bottom:2px solid #e2e8f0;">
+      <h3 style="margin-bottom:16px; color:#4338ca;">Full-Screen UI Customization</h3>
+      <p class="muted" style="margin-bottom:16px;">Customize the appearance of the full-screen chatbot interface.</p>
+      
+      <!-- Header Settings -->
+      <div style="margin-bottom:24px; padding:16px; background:#f8fafc; border-radius:12px; border-left:4px solid #4338ca;">
+        <h4 style="margin-top:0; margin-bottom:12px; color:#4338ca;">Header Settings</h4>
+        
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:16px;">
+          <div>
+            <label for="header_bg_color">Header Background</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="header_bg_color" name="header_bg_color" value="{{ (settings.custom_settings or {}).get('header_bg_color', '#ffffff') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('header_bg_color', '#ffffff') }}" oninput="document.getElementById('header_bg_color').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+          
+          <div>
+            <label for="header_text_color">Header Text Color</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="header_text_color" name="header_text_color" value="{{ (settings.custom_settings or {}).get('header_text_color', '#1e293b') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('header_text_color', '#1e293b') }}" oninput="document.getElementById('header_text_color').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+          
+          <div>
+            <label for="header_border_color">Header Border Color</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="header_border_color" name="header_border_color" value="{{ (settings.custom_settings or {}).get('header_border_color', '#e2e8f0') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('header_border_color', '#e2e8f0') }}" oninput="document.getElementById('header_border_color').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+          
+          <div>
+            <label for="header_height">Header Height (px)</label>
+            <input type="number" id="header_height" name="header_height" value="{{ (settings.custom_settings or {}).get('header_height', '64') }}" min="48" max="120" step="4" style="width:100%;" />
+          </div>
+        </div>
+      </div>
+      
+      <!-- Input Bar Settings -->
+      <div style="margin-bottom:24px; padding:16px; background:#f8fafc; border-radius:12px; border-left:4px solid #4338ca;">
+        <h4 style="margin-top:0; margin-bottom:12px; color:#4338ca;">Input Bar Settings</h4>
+        
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:16px;">
+          <div>
+            <label for="input_bg_color">Input Background</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="input_bg_color" name="input_bg_color" value="{{ (settings.custom_settings or {}).get('input_bg_color', '#ffffff') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('input_bg_color', '#ffffff') }}" oninput="document.getElementById('input_bg_color').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+          
+          <div>
+            <label for="input_border_color">Input Border Color</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="input_border_color" name="input_border_color" value="{{ (settings.custom_settings or {}).get('input_border_color', '#d1d5db') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('input_border_color', '#d1d5db') }}" oninput="document.getElementById('input_border_color').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+          
+          <div>
+            <label for="input_text_color">Input Text Color</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="input_text_color" name="input_text_color" value="{{ (settings.custom_settings or {}).get('input_text_color', '#1e293b') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('input_text_color', '#1e293b') }}" oninput="document.getElementById('input_text_color').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+          
+          <div>
+            <label for="input_placeholder_color">Placeholder Color</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="input_placeholder_color" name="input_placeholder_color" value="{{ (settings.custom_settings or {}).get('input_placeholder_color', '#9ca3af') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('input_placeholder_color', '#9ca3af') }}" oninput="document.getElementById('input_placeholder_color').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+          
+          <div>
+            <label for="input_border_radius">Border Radius (px)</label>
+            <input type="number" id="input_border_radius" name="input_border_radius" value="{{ (settings.custom_settings or {}).get('input_border_radius', '16') }}" min="0" max="50" step="2" style="width:100%;" />
+          </div>
+          
+          <div>
+            <label for="input_height">Input Height (px)</label>
+            <input type="number" id="input_height" name="input_height" value="{{ (settings.custom_settings or {}).get('input_height', '52') }}" min="40" max="80" step="4" style="width:100%;" />
+          </div>
+          
+          <div>
+            <label for="input_padding">Input Padding (px)</label>
+            <input type="number" id="input_padding" name="input_padding" value="{{ (settings.custom_settings or {}).get('input_padding', '12') }}" min="8" max="24" step="2" style="width:100%;" />
+          </div>
+        </div>
+      </div>
+      
+      <!-- Sidebar Settings -->
+      <div style="margin-bottom:24px; padding:16px; background:#f8fafc; border-radius:12px; border-left:4px solid #4338ca;">
+        <h4 style="margin-top:0; margin-bottom:12px; color:#4338ca;">Sidebar Settings</h4>
+        
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:16px;">
+          <div>
+            <label for="sidebar_bg_color">Sidebar Background</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="sidebar_bg_color" name="sidebar_bg_color" value="{{ (settings.custom_settings or {}).get('sidebar_bg_color', '#f9fafb') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('sidebar_bg_color', '#f9fafb') }}" oninput="document.getElementById('sidebar_bg_color').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+          
+          <div>
+            <label for="sidebar_text_color">Sidebar Text Color</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="sidebar_text_color" name="sidebar_text_color" value="{{ (settings.custom_settings or {}).get('sidebar_text_color', '#1e293b') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('sidebar_text_color', '#1e293b') }}" oninput="document.getElementById('sidebar_text_color').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+          
+          <div>
+            <label for="sidebar_border_color">Sidebar Border Color</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="sidebar_border_color" name="sidebar_border_color" value="{{ (settings.custom_settings or {}).get('sidebar_border_color', '#e2e8f0') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('sidebar_border_color', '#e2e8f0') }}" oninput="document.getElementById('sidebar_border_color').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+          
+          <div>
+            <label for="sidebar_width">Sidebar Width (px)</label>
+            <input type="number" id="sidebar_width" name="sidebar_width" value="{{ (settings.custom_settings or {}).get('sidebar_width', '280') }}" min="200" max="400" step="20" style="width:100%;" />
+          </div>
+          
+          <div>
+            <label for="sidebar_chat_hover_bg">Chat Item Hover Background</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="sidebar_chat_hover_bg" name="sidebar_chat_hover_bg" value="{{ (settings.custom_settings or {}).get('sidebar_chat_hover_bg', '#f3f4f6') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('sidebar_chat_hover_bg', '#f3f4f6') }}" oninput="document.getElementById('sidebar_chat_hover_bg').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+          
+          <div>
+            <label for="sidebar_chat_active_bg">Active Chat Background</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="color" id="sidebar_chat_active_bg" name="sidebar_chat_active_bg" value="{{ (settings.custom_settings or {}).get('sidebar_chat_active_bg', '#e0e7ff') }}" style="width:60px; height:40px; padding:2px; cursor:pointer;" />
+              <input type="text" value="{{ (settings.custom_settings or {}).get('sidebar_chat_active_bg', '#e0e7ff') }}" oninput="document.getElementById('sidebar_chat_active_bg').value=this.value" style="flex:1;" pattern="^#[0-9A-Fa-f]{6}$" />
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Message Bubble Settings -->
+      <div style="margin-bottom:24px; padding:16px; background:#f8fafc; border-radius:12px; border-left:4px solid #4338ca;">
+        <h4 style="margin-top:0; margin-bottom:12px; color:#4338ca;">Message Bubble Settings</h4>
+        
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:16px;">
+          <div>
+            <label for="message_border_radius">Message Border Radius (px)</label>
+            <input type="number" id="message_border_radius" name="message_border_radius" value="{{ (settings.custom_settings or {}).get('message_border_radius', '16') }}" min="0" max="30" step="2" style="width:100%;" />
+          </div>
+          
+          <div>
+            <label for="message_padding">Message Padding (px)</label>
+            <input type="number" id="message_padding" name="message_padding" value="{{ (settings.custom_settings or {}).get('message_padding', '12') }}" min="8" max="24" step="2" style="width:100%;" />
+          </div>
+          
+          <div>
+            <label for="message_gap">Message Gap (px)</label>
+            <input type="number" id="message_gap" name="message_gap" value="{{ (settings.custom_settings or {}).get('message_gap', '24') }}" min="8" max="48" step="4" style="width:100%;" />
+          </div>
+          
+          <div>
+            <label for="message_max_width">Message Max Width (%)</label>
+            <input type="number" id="message_max_width" name="message_max_width" value="{{ (settings.custom_settings or {}).get('message_max_width', '85') }}" min="50" max="100" step="5" style="width:100%;" />
+          </div>
+          
+          <div>
+            <label for="message_shadow">Enable Message Shadow</label>
+            <select id="message_shadow" name="message_shadow" style="width:100%; padding:8px; border-radius:8px; border:1px solid #cbd5e1;">
+              <option value="none" {% if (settings.custom_settings or {}).get('message_shadow', 'none') == 'none' %}selected{% endif %}>None</option>
+              <option value="small" {% if (settings.custom_settings or {}).get('message_shadow', 'none') == 'small' %}selected{% endif %}>Small</option>
+              <option value="medium" {% if (settings.custom_settings or {}).get('message_shadow', 'none') == 'medium' %}selected{% endif %}>Medium</option>
+              <option value="large" {% if (settings.custom_settings or {}).get('message_shadow', 'none') == 'large' %}selected{% endif %}>Large</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Typography Settings -->
+      <div style="margin-bottom:24px; padding:16px; background:#f8fafc; border-radius:12px; border-left:4px solid #4338ca;">
+        <h4 style="margin-top:0; margin-bottom:12px; color:#4338ca;">Typography Settings</h4>
+        
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:16px;">
+          <div>
+            <label for="font_family">Font Family</label>
+            <select id="font_family" name="font_family" style="width:100%; padding:8px; border-radius:8px; border:1px solid #cbd5e1;">
+              <option value="system" {% if (settings.custom_settings or {}).get('font_family', 'system') == 'system' %}selected{% endif %}>System Default</option>
+              <option value="Inter" {% if (settings.custom_settings or {}).get('font_family', 'system') == 'Inter' %}selected{% endif %}>Inter</option>
+              <option value="Roboto" {% if (settings.custom_settings or {}).get('font_family', 'system') == 'Roboto' %}selected{% endif %}>Roboto</option>
+              <option value="Open Sans" {% if (settings.custom_settings or {}).get('font_family', 'system') == 'Open Sans' %}selected{% endif %}>Open Sans</option>
+              <option value="Lato" {% if (settings.custom_settings or {}).get('font_family', 'system') == 'Lato' %}selected{% endif %}>Lato</option>
+              <option value="Poppins" {% if (settings.custom_settings or {}).get('font_family', 'system') == 'Poppins' %}selected{% endif %}>Poppins</option>
+              <option value="Montserrat" {% if (settings.custom_settings or {}).get('font_family', 'system') == 'Montserrat' %}selected{% endif %}>Montserrat</option>
+            </select>
+          </div>
+          
+          <div>
+            <label for="font_size_base">Base Font Size (px)</label>
+            <input type="number" id="font_size_base" name="font_size_base" value="{{ (settings.custom_settings or {}).get('font_size_base', '16') }}" min="12" max="20" step="1" style="width:100%;" />
+          </div>
+          
+          <div>
+            <label for="font_size_small">Small Font Size (px)</label>
+            <input type="number" id="font_size_small" name="font_size_small" value="{{ (settings.custom_settings or {}).get('font_size_small', '14') }}" min="10" max="18" step="1" style="width:100%;" />
+          </div>
+          
+          <div>
+            <label for="font_weight_normal">Normal Font Weight</label>
+            <select id="font_weight_normal" name="font_weight_normal" style="width:100%; padding:8px; border-radius:8px; border:1px solid #cbd5e1;">
+              <option value="400" {% if (settings.custom_settings or {}).get('font_weight_normal', '400') == '400' %}selected{% endif %}>400 (Normal)</option>
+              <option value="500" {% if (settings.custom_settings or {}).get('font_weight_normal', '400') == '500' %}selected{% endif %}>500 (Medium)</option>
+              <option value="600" {% if (settings.custom_settings or {}).get('font_weight_normal', '400') == '600' %}selected{% endif %}>600 (Semi-bold)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Button Settings -->
+      <div style="margin-bottom:24px; padding:16px; background:#f8fafc; border-radius:12px; border-left:4px solid #4338ca;">
+        <h4 style="margin-top:0; margin-bottom:12px; color:#4338ca;">Button Settings</h4>
+        
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:16px;">
+          <div>
+            <label for="button_border_radius">Button Border Radius (px)</label>
+            <input type="number" id="button_border_radius" name="button_border_radius" value="{{ (settings.custom_settings or {}).get('button_border_radius', '8') }}" min="0" max="20" step="2" style="width:100%;" />
+          </div>
+          
+          <div>
+            <label for="send_button_size">Send Button Size (px)</label>
+            <input type="number" id="send_button_size" name="send_button_size" value="{{ (settings.custom_settings or {}).get('send_button_size', '52') }}" min="40" max="80" step="4" style="width:100%;" />
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Widget Settings -->
     <div style="margin-bottom:32px; padding-bottom:24px; border-bottom:2px solid #e2e8f0;">
       <h3 style="margin-bottom:16px; color:#4338ca;">Widget Settings</h3>
@@ -337,7 +578,7 @@
   </form>
 </div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce if request.state.csp_nonce else '' }}">
   // Sync color inputs
   document.querySelectorAll('input[type="color"]').forEach(colorInput => {
     const textInput = colorInput.parentElement.querySelector('input[type="text"]');

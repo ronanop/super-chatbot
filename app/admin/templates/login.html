@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Admin Login - Cache Digitech</title>
-    <style>
+    <style nonce="{{ request.state.csp_nonce if request.state.csp_nonce else '' }}">
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
       
       * {
@@ -197,6 +197,10 @@
       {% endif %}
       
       <form method="post" action="/admin/login">
+        {% if csrf_token %}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        {% endif %}
+        
         <div class="form-group">
           <label for="username">Username</label>
           <input 
@@ -206,6 +210,7 @@
             placeholder="Enter your username" 
             required 
             autofocus
+            autocomplete="username"
           />
         </div>
         
@@ -217,6 +222,7 @@
             name="password" 
             placeholder="Enter your password" 
             required
+            autocomplete="current-password"
           />
         </div>
         

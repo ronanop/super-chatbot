@@ -8,8 +8,8 @@ itsdangerous>=2.1.0
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
 
-# Google Gemini
-google-generativeai>=0.3.0
+# OpenAI (LLM and Embeddings)
+openai>=1.0.0
 
 # Vector Database
 pinecone>=5.0.0
@@ -35,4 +35,11 @@ requests>=2.31.0
 # Templates and Static Files
 jinja2>=3.1.0
 aiofiles>=23.2.0
+
+# File Type Detection (for input validation)
+python-magic>=0.4.27
+
+# Authentication
+PyJWT>=2.8.0
+bcrypt>=4.1.0
 

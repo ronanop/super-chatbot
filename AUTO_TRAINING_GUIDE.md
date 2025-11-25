@@ -100,7 +100,7 @@ User: "What are your business hours?"
 Bot: "We're open Monday-Friday 9 AM to 6 PM EST."
 
 Extracted Knowledge:
-"Cache Digitech business hours: Monday-Friday, 9 AM to 6 PM EST."
+"AskCache.ai business hours: Monday-Friday, 9 AM to 6 PM EST."
 ```
 
 ## Monitoring

@@ -3,18 +3,18 @@ from __future__ import annotations
 import os
 from typing import Callable, Iterable, Sequence
 
-import google.generativeai as genai
+from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 
-api_key = os.getenv("GEMINI_API_KEY")
+api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
-    raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
+    raise RuntimeError("OPENAI_API_KEY environment variable is not set.")
 
-genai.configure(api_key=api_key)
+client = OpenAI(api_key=api_key)
 
-_DEFAULT_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "models/text-embedding-004")
+_DEFAULT_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
 
 def embed_texts(
@@ -36,17 +36,26 @@ def embed_texts(
         except Exception:
             pass
 
-    for text in texts_list:
-        response = genai.embed_content(model=_DEFAULT_EMBEDDING_MODEL, content=text)
-        embedding = response.get("embedding")
-        if not embedding:
-            raise RuntimeError("Embedding API returned no embedding vector.")
-        embeddings.append(list(embedding))
-        processed += 1
-        if progress_callback:
-            try:
-                progress_callback(processed, total)
-            except Exception:
-                pass
+    # OpenAI embeddings API accepts multiple texts at once (up to 2048)
+    batch_size = 2048
+    for i in range(0, len(texts_list), batch_size):
+        batch = texts_list[i:i + batch_size]
+        
+        try:
+            response = client.embeddings.create(
+                model=_DEFAULT_EMBEDDING_MODEL,
+                input=batch
+            )
+            
+            for embedding_obj in response.data:
+                embeddings.append(embedding_obj.embedding)
+                processed += 1
+                if progress_callback:
+                    try:
+                        progress_callback(processed, total)
+                    except Exception:
+                        pass
+        except Exception as e:
+            raise RuntimeError(f"Embedding API error: {e}")
 
     return embeddings

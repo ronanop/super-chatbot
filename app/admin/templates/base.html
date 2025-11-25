@@ -594,7 +594,7 @@
       {% block content %}{% endblock %}
     </main>
     
-    <script>
+    <script nonce="{{ request.state.csp_nonce if request.state.csp_nonce else '' }}">
       // Smooth page transitions
       document.addEventListener('DOMContentLoaded', function() {
         // Add fade-in animation to all cards
